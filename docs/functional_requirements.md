@@ -74,3 +74,8 @@
 - FR-9.1: The system shall not persist run data between sessions.
 - FR-9.2: The system may persist tutorial state locally.
 - FR-9.3: The system shall not rely on backend services in MVP.
+
+- ## 10. Input Constraints
+
+- FR-10.1: Where possible, the system shall not require more than three concurrent keypresses to complete tasks, to allow for older/budget hardware
+- FR-10.2: The system shall not require more than six concurrent keypresses to complete tasks, due to potential hardware or browser constraints.
