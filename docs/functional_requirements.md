@@ -79,3 +79,4 @@
 
 - FR-10.1: Where possible, the system shall not require more than three concurrent keypresses to complete tasks, to allow for older/budget hardware
 - FR-10.2: The system shall not require more than six concurrent keypresses to complete tasks, due to potential hardware or browser constraints.
+- FR-10.3: Task concurrency and sequencing shall avoid common browser or OS shortcut combinations (shift-tab, alt-enter, etc.)
