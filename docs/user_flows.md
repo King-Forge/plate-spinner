@@ -38,7 +38,7 @@
 1. Failure occurs when a critical task reaches a failure state. Critical tasks will change based on milestones and run progress
 2. Upon failure, the game will clearly indicate to the user what has happened by animation, highlighting, text popup, or other means
 3. Statistics including run time will be displayed on screen.
-4. User will be provided options to restart, (about), (settings), and non-interactive "log in and save progress" button with "coming soon" subtitle and tooltip
+4. User will be provided options to restart, return to start, (about), (settings), and non-interactive "log in and save progress" button with "coming soon" subtitle and tooltip
 
 ### Flow 4: Restart a Run
 1. Restart can be performed from pause screen or failure scren.
