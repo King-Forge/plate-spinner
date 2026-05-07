@@ -1,70 +1,39 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Stage, Layer, Rect } from "react-konva";
 import TaskShape from "./TaskShape";
-import type { TaskStatus } from "./TaskShape";
+import type { GameSnapshot } from "../core/gameTypes";
+import GameEngine from "../core/GameEngine";
 
 const STAGE_WIDTH = 800;
 const STAGE_HEIGHT = 400;
-//const TASK_STATUS = "success";
-const TASK_KEY_CODE = "SPACE";
-const TASK_KEY = " ";
-
-//parameters are from 0 to 1
-const SUCCESS_START = 0.35;
-const SUCCESS_END = 0.65;
-const PERFECT_START = 0.45;
-const PERFECT_END = 0.55;
 
 function GameStage() {
-  const [taskProgress, setTaskProgress] = useState(0);
-  const [taskStatus, setTaskStatus] = useState<TaskStatus>("perfect");
-  const taskProgressRef = useRef(taskProgress);
+  const [gameState, setGameState] = useState<GameSnapshot>([]);
 
+  //initial setup, runs on mount
+  //instantiate engine, register state listener, register keyboard handler, start server
   useEffect(() => {
-    taskProgressRef.current = taskProgress;
-  }, [taskProgress]);
+    try {
+      const gameEngine = new GameEngine();
+      const unsubscribe = gameEngine.subscribe((snapshot: GameSnapshot) =>
+        setGameState(snapshot),
+      );
+      gameEngine.start();
 
-  const incrementTaskProgress = () => {
-    setTaskProgress((prevTaskProgress) => {
-      if (prevTaskProgress >= 1) {
-        return 0;
+      window.addEventListener("keydown", gameEngine.handleInput);
+
+      return () => {
+        gameEngine.stop();
+        unsubscribe();
+        window.removeEventListener("keydown", gameEngine.handleInput);
+      };
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        console.error("Logged Error:", error.message); // Safely access .message
       } else {
-        return prevTaskProgress + 0.01;
+        console.error("An unknown error occurred", error);
       }
-    });
-  };
-
-  useEffect(() => {
-    const intervalID = setInterval(() => {
-      incrementTaskProgress();
-    }, 10);
-
-    return () => clearInterval(intervalID);
-  }, []);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      console.log("Key pressed:", event.key);
-      const currentProgress = taskProgressRef.current;
-      if (event.key === TASK_KEY) {
-        if (currentProgress > PERFECT_START && currentProgress < PERFECT_END) {
-          setTaskStatus("perfect");
-        } else if (
-          currentProgress > SUCCESS_START &&
-          currentProgress < SUCCESS_END
-        ) {
-          setTaskStatus("success");
-        } else {
-          setTaskStatus("failure");
-        }
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
+    }
   }, []);
 
   return (
@@ -81,15 +50,17 @@ function GameStage() {
           strokeWidth={5}
         />
         {/* render a single task using provided props*/}
-        <TaskShape
-          taskStatus={taskStatus}
-          taskKey={TASK_KEY_CODE}
-          taskProgress={taskProgress}
-          success_start={SUCCESS_START}
-          success_end={SUCCESS_END}
-          perfect_start={PERFECT_START}
-          perfect_end={PERFECT_END}
-        />
+        {gameState[0] && (
+          <TaskShape
+            taskStatus={gameState[0].status}
+            taskKey={gameState[0].key}
+            taskProgress={gameState[0].progress}
+            success_start={gameState[0].timingConfig.successStart}
+            success_end={gameState[0].timingConfig.successEnd}
+            perfect_start={gameState[0].timingConfig.perfectStart}
+            perfect_end={gameState[0].timingConfig.perfectEnd}
+          />
+        )}
       </Layer>
     </Stage>
   );

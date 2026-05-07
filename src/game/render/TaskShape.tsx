@@ -1,14 +1,15 @@
 import { Group, Rect, Text } from "react-konva";
 import TimingWindowBar from "./TimingWindowBar";
+import type { TaskStatus } from "../core/gameTypes";
 
 //mapping task state to component status color, values must be valid HTML5 color strings
 const STATE_COLORS = {
+  idle: "darkgray",
+  active: "gray",
   failure: "red",
   success: "yellow",
   perfect: "green",
 };
-
-export type TaskStatus = "success" | "perfect" | "failure";
 
 interface TaskShapeProps {
   taskStatus: TaskStatus;
@@ -31,11 +32,17 @@ function TaskShape({
 }: TaskShapeProps) {
   const RECT_COLOR = STATE_COLORS[taskStatus];
 
+  //TODO: fix this later to handle display text for other non-alphanumeric keys
+  let displayKey = taskKey;
+  if (displayKey == " ") {
+    displayKey = "SPACE";
+  }
+
   return (
     <>
       <Group>
         <Rect x={600} y={100} width={120} height={80} fill={RECT_COLOR} />
-        <Text x={600} y={180} text={taskKey} />
+        <Text x={600} y={180} text={displayKey} />
         <TimingWindowBar
           taskProgress={taskProgress}
           success_start={success_start}
