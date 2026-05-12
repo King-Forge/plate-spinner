@@ -1,4 +1,5 @@
 import { Group, Rect } from "react-konva";
+import type { TaskStatus, TaskTimingConfig } from "../core/gameTypes";
 
 //mapping task state to component status color, values must be valid HTML5 color strings
 const STATE_COLORS = {
@@ -9,10 +10,8 @@ const STATE_COLORS = {
 
 interface TimingWindowBarProps {
   taskProgress: number;
-  success_start: number;
-  success_end: number;
-  perfect_start: number;
-  perfect_end: number;
+  timingConfig: TaskTimingConfig;
+  flashStatus: TaskStatus | null;
 }
 
 const BAR_X = 100;
@@ -24,11 +23,11 @@ const INDICATOR_WIDTH = 5;
 
 function TimingWindowBar({
   taskProgress,
-  success_start,
-  success_end,
-  perfect_start,
-  perfect_end,
+  timingConfig,
+  flashStatus,
 }: TimingWindowBarProps) {
+  //deconstruct timingConfig properties
+  const { successStart, successEnd, perfectStart, perfectEnd } = timingConfig;
   //clamp progress to valid values
   let clampedProgress;
   if (taskProgress < 0) {
@@ -48,23 +47,32 @@ function TimingWindowBar({
   const INTERNAL_WIDTH = BAR_WIDTH - 2 * BAR_MARGIN;
 
   const INIT_IDLE_X = INTERNAL_X;
-  const INIT_IDLE_WIDTH = INTERNAL_WIDTH * success_start;
+  const INIT_IDLE_WIDTH = INTERNAL_WIDTH * successStart;
 
   const INIT_SUCCESS_X = INIT_IDLE_X + INIT_IDLE_WIDTH;
-  const INIT_SUCCESS_WIDTH = INTERNAL_WIDTH * (perfect_start - success_start);
+  const INIT_SUCCESS_WIDTH = INTERNAL_WIDTH * (perfectStart - successStart);
 
   const PERFECT_X = INIT_SUCCESS_X + INIT_SUCCESS_WIDTH;
-  const PERFECT_WIDTH = INTERNAL_WIDTH * (perfect_end - perfect_start);
+  const PERFECT_WIDTH = INTERNAL_WIDTH * (perfectEnd - perfectStart);
 
   const TRAILING_SUCCESS_X = PERFECT_X + PERFECT_WIDTH;
-  const TRAILING_SUCCESS_WIDTH = INTERNAL_WIDTH * (success_end - perfect_end);
+  const TRAILING_SUCCESS_WIDTH = INTERNAL_WIDTH * (successEnd - perfectEnd);
 
   const TRAILING_IDLE_X = TRAILING_SUCCESS_X + TRAILING_SUCCESS_WIDTH;
-  const TRAILING_IDLE_WIDTH = INTERNAL_WIDTH * (1 - success_end);
+  const TRAILING_IDLE_WIDTH = INTERNAL_WIDTH * (1 - successEnd);
 
   //set relative position of indicator to clampedProgress/100 % of the way though timing bar frame
   const INDICATOR_X =
     clampedProgress * INTERNAL_WIDTH + BAR_X + BAR_MARGIN - INDICATOR_WIDTH / 2;
+
+  let borderColor = "darkgray";
+  if (flashStatus == "perfect") {
+    borderColor = STATE_COLORS["perfect"];
+  } else if (flashStatus == "success") {
+    borderColor = STATE_COLORS["success"];
+  } else if (flashStatus == "failure") {
+    borderColor = STATE_COLORS["failure"];
+  }
   return (
     <>
       <Group>
@@ -73,7 +81,7 @@ function TimingWindowBar({
           y={BAR_Y}
           width={BAR_WIDTH}
           height={BAR_HEIGHT}
-          stroke="darkgray"
+          stroke={borderColor}
           fill="lightgray"
           strokeWidth={5}
         />

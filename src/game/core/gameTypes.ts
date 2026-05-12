@@ -13,6 +13,9 @@ export type TaskSnapshot = {
   status: TaskStatus;
   progress: number;
   timingConfig: TaskTimingConfig;
+
+  //null if not flashing
+  flashStatus: TaskStatus | null;
 };
 
 export type GameSnapshot = TaskSnapshot[];

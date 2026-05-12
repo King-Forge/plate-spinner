@@ -50,17 +50,7 @@ function GameStage() {
           strokeWidth={5}
         />
         {/* render a single task using provided props*/}
-        {gameState[0] && (
-          <TaskShape
-            taskStatus={gameState[0].status}
-            taskKey={gameState[0].key}
-            taskProgress={gameState[0].progress}
-            success_start={gameState[0].timingConfig.successStart}
-            success_end={gameState[0].timingConfig.successEnd}
-            perfect_start={gameState[0].timingConfig.perfectStart}
-            perfect_end={gameState[0].timingConfig.perfectEnd}
-          />
-        )}
+        {gameState[0] && <TaskShape taskSnapshot={gameState[0]} />}
       </Layer>
     </Stage>
   );
