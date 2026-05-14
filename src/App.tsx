@@ -1,12 +1,12 @@
 import "./App.css";
-import GameStage from "./game/render/GameStage";
+import SandboxPage from "./game/render/SandboxPage";
 
 function App() {
   return (
     <>
       <h1>Plate Spinner (project placeholder name)</h1>
       <h3>Sandbox utility for creating and tuning individual tasks</h3>
-      <div>{GameStage()}</div>
+      <div>{SandboxPage()}</div>
     </>
   );
 }

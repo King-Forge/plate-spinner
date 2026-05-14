@@ -14,8 +14,8 @@ interface TimingWindowBarProps {
   flashStatus: TaskStatus | null;
 }
 
-const BAR_X = 100;
-const BAR_Y = 100;
+const BAR_X = 20;
+const BAR_Y = 50;
 const BAR_HEIGHT = 40;
 const BAR_WIDTH = 400;
 const BAR_MARGIN = 10;
@@ -46,20 +46,11 @@ function TimingWindowBar({
   const INTERNAL_HEIGHT = BAR_HEIGHT - BAR_MARGIN * 2;
   const INTERNAL_WIDTH = BAR_WIDTH - 2 * BAR_MARGIN;
 
-  const INIT_IDLE_X = INTERNAL_X;
-  const INIT_IDLE_WIDTH = INTERNAL_WIDTH * successStart;
+  const INIT_SUCCESS_X = INTERNAL_X + INTERNAL_WIDTH * successStart;
+  const INIT_SUCCESS_WIDTH = INTERNAL_WIDTH * (successEnd - successStart);
 
-  const INIT_SUCCESS_X = INIT_IDLE_X + INIT_IDLE_WIDTH;
-  const INIT_SUCCESS_WIDTH = INTERNAL_WIDTH * (perfectStart - successStart);
-
-  const PERFECT_X = INIT_SUCCESS_X + INIT_SUCCESS_WIDTH;
+  const PERFECT_X = INTERNAL_X + INTERNAL_WIDTH * perfectStart;
   const PERFECT_WIDTH = INTERNAL_WIDTH * (perfectEnd - perfectStart);
-
-  const TRAILING_SUCCESS_X = PERFECT_X + PERFECT_WIDTH;
-  const TRAILING_SUCCESS_WIDTH = INTERNAL_WIDTH * (successEnd - perfectEnd);
-
-  const TRAILING_IDLE_X = TRAILING_SUCCESS_X + TRAILING_SUCCESS_WIDTH;
-  const TRAILING_IDLE_WIDTH = INTERNAL_WIDTH * (1 - successEnd);
 
   //set relative position of indicator to clampedProgress/100 % of the way though timing bar frame
   const INDICATOR_X =
@@ -85,15 +76,15 @@ function TimingWindowBar({
           fill="lightgray"
           strokeWidth={5}
         />
-        {/* initial idle window, interaction results in failure*/}
+        {/* paint entire internal area with failure window first, overwrite with other windows*/}
         <Rect
-          x={INIT_IDLE_X}
+          x={INTERNAL_X}
           y={INTERNAL_Y}
-          width={INIT_IDLE_WIDTH}
+          width={INTERNAL_WIDTH}
           height={INTERNAL_HEIGHT}
           fill={STATE_COLORS.failure}
         />
-        {/* initial success window*/}
+        {/* paint success window*/}
         <Rect
           x={INIT_SUCCESS_X}
           y={INTERNAL_Y}
@@ -101,29 +92,13 @@ function TimingWindowBar({
           height={INTERNAL_HEIGHT}
           fill={STATE_COLORS.success}
         />
-        {/* perfect window*/}
+        {/* last, paint perfect window on top of everything*/}
         <Rect
           x={PERFECT_X}
           y={INTERNAL_Y}
           width={PERFECT_WIDTH}
           height={INTERNAL_HEIGHT}
           fill={STATE_COLORS.perfect}
-        />
-        {/* trailing success window*/}
-        <Rect
-          x={TRAILING_SUCCESS_X}
-          y={INTERNAL_Y}
-          width={TRAILING_SUCCESS_WIDTH}
-          height={INTERNAL_HEIGHT}
-          fill={STATE_COLORS.success}
-        />
-        {/* trailing idle window, interaction results in failure*/}
-        <Rect
-          x={TRAILING_IDLE_X}
-          y={INTERNAL_Y}
-          width={TRAILING_IDLE_WIDTH}
-          height={INTERNAL_HEIGHT}
-          fill={STATE_COLORS.failure}
         />
 
         {/* timing progress indicator*/}

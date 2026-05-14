@@ -1,41 +1,25 @@
-import { useState, useEffect } from "react";
-import { Stage, Layer, Rect } from "react-konva";
+import { Stage, Layer, Rect, Text } from "react-konva";
 import TaskShape from "./TaskShape";
 import type { GameSnapshot } from "../core/gameTypes";
-import GameEngine from "../core/GameEngine";
 
-const STAGE_WIDTH = 800;
-const STAGE_HEIGHT = 400;
+const STAGE_WIDTH = 440;
+const STAGE_HEIGHT = 150;
 
-function GameStage() {
-  const [gameState, setGameState] = useState<GameSnapshot>([]);
+interface GameStageProps {
+  gameState: GameSnapshot;
+  //used to specify only one task Id to display, for sandbox mode
+  sandboxTaskId?: number;
+}
 
-  //initial setup, runs on mount
-  //instantiate engine, register state listener, register keyboard handler, start server
-  useEffect(() => {
-    try {
-      const gameEngine = new GameEngine();
-      const unsubscribe = gameEngine.subscribe((snapshot: GameSnapshot) =>
-        setGameState(snapshot),
-      );
-      gameEngine.start();
-
-      window.addEventListener("keydown", gameEngine.handleInput);
-
-      return () => {
-        gameEngine.stop();
-        unsubscribe();
-        window.removeEventListener("keydown", gameEngine.handleInput);
-      };
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error("Logged Error:", error.message); // Safely access .message
-      } else {
-        console.error("An unknown error occurred", error);
-      }
-    }
-  }, []);
-
+//accepts GameSnapshot as prop, renders game stage
+function GameStage({ gameState, sandboxTaskId }: GameStageProps) {
+  //if in sandbox mode, find selected task
+  let foundTask = null;
+  if (sandboxTaskId) {
+    foundTask = gameState.find(
+      (taskSnapshot) => taskSnapshot.id === sandboxTaskId,
+    );
+  }
   return (
     <Stage width={STAGE_WIDTH} height={STAGE_HEIGHT}>
       <Layer>
@@ -49,8 +33,20 @@ function GameStage() {
           fill="lightgray"
           strokeWidth={5}
         />
-        {/* render a single task using provided props*/}
-        {gameState[0] && <TaskShape taskSnapshot={gameState[0]} />}
+        {/* if in sandbox mode, render a single task using provided Id number*/}
+        {foundTask ? (
+          <TaskShape taskSnapshot={foundTask} />
+        ) : (
+          <Text
+            text="Please select a valid task ID"
+            x={0}
+            y={STAGE_HEIGHT / 2}
+            width={STAGE_WIDTH}
+            align="center"
+            fontSize={20}
+            fill="black"
+          />
+        )}
       </Layer>
     </Stage>
   );
