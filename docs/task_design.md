@@ -50,7 +50,7 @@
   - user must hit a threshold of n + m inputs in one iteration for 'perfect'
   - think 'tremolo' (use a set of two or more related nodes to implement a 'trill')
   - advanced - may have success and 'perfect' windows or may be entire iteration duration
-  - advanced - may have 'overload' state beyond perfect that causes failure
+  - advanced - may have 'overload' state beyond perfect that causes failure - not implemented in MVP
 - Hit-except
   - user must perform input at any time during iteration but avoid 'exclusion' windows that would cause failure
   - may be single-hit or n-hit
