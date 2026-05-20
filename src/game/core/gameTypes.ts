@@ -18,6 +18,10 @@ export type TaskSnapshot = {
   flashStatus: TaskStatus | null;
 };
 
+export type GameSnapshot = TaskSnapshot[];
+
+export type EngineListener = (snapshot: GameSnapshot) => void;
+
 export type TaskConfig = {
   id: number;
   keyCode: string;
@@ -25,16 +29,13 @@ export type TaskConfig = {
   duration: number;
 };
 
+export type GameConfig = TaskConfig[];
+
 //patch object for sending partial config updates, only used for sandbox and tuning
 export type TaskConfigPatch = {
   keyCode?: string;
   timingConfig?: Partial<TaskTimingConfig>;
   duration?: number;
-};
-
-export type StartupConfig = {
-  numTasks: number;
-  taskConfigs: TaskConfig[];
 };
 
 //diagnostic data for individual tasks, uses for sandbox and debug
@@ -48,7 +49,3 @@ export type TaskDiag = {
 export const buildTaskDiag = (taskID: number): TaskDiag => {
   return { taskId: taskID, perfectCount: 0, successCount: 0, failureCount: 0 };
 };
-
-export type GameSnapshot = TaskSnapshot[];
-
-export type EngineListener = (snapshot: GameSnapshot) => void;

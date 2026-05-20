@@ -1,20 +1,17 @@
-import { useState, useEffect, useRef } from "react";
-import {
-  type GameSnapshot,
-  type TaskConfig,
-  type TaskDiag,
+import { useState, useEffect, useRef, useCallback } from "react";
+import type {
+  GameSnapshot,
+  TaskConfig,
+  TaskDiag,
+  GameConfig,
 } from "../core/gameTypes";
 import GameEngine from "../core/GameEngine";
 import GameStage from "./GameStage";
 import SandboxControlCard from "./SandboxcontrolCard";
-import defaultSandboxConfig from "../config/defaultSandboxConfig";
 
 function SandboxPage() {
   const [gameState, setGameState] = useState<GameSnapshot>([]);
   const gameEngine = useRef<GameEngine | null>(null);
-
-  //placeholder, TODO: implement way to retrieve taskID list from gameEngine
-  const [taskIdList, setTaskIdList] = useState<number[]>([1]);
 
   //these are UI parameters, they don't control game logic, call game engine functions for that
   const [selectedTaskId, setSelectedTaskId] = useState<number>(0);
@@ -107,21 +104,68 @@ function SandboxPage() {
     e.currentTarget.blur();
   };
 
+  //load config data from static config file, then send to gameEngine
+  //calling code (if not on mount) should setSelectedTaskId(0);
+  const loadGameConfig = useCallback(async () => {
+    const response = await fetch("/game-config.json");
+    const jsonData = await response.json();
+    const gameConfig = jsonData as GameConfig;
+    gameEngine.current?.setGameConfig(gameConfig);
+  }, []);
+
+  //constructs an array of config data for all active tasks
+  //converts to JSON format, programmatically generates and clicks download link
+  //used for sandbox tuning of task config parameters
+  const handleExportConfig = (e: React.MouseEvent<HTMLButtonElement>) => {
+    //construct export data as an array of config data for each task in gameState
+    const exportConfig = gameState.map((taskState) => {
+      return gameEngine.current?.getTaskConfig(taskState.id);
+    });
+
+    //convert to JSON and create blob
+    const jsonConfig = JSON.stringify(exportConfig, null, 2);
+    const configBlob = new Blob([jsonConfig], { type: "application/json" });
+
+    //create temporary DOM element and trigger download
+    const configURL = URL.createObjectURL(configBlob);
+    const configLink = document.createElement("a");
+    configLink.href = configURL;
+    configLink.download = "game-config.json";
+    document.body.appendChild(configLink);
+    configLink.click();
+
+    //cleanup temporary element
+    document.body.removeChild(configLink);
+    URL.revokeObjectURL(configURL);
+
+    e.currentTarget.blur();
+  };
+
+  //reset selected task to default
+  //re-load game config from file
+  //re-initializes all progress, diagData, task status
+  const handleResetDefault = (e: React.MouseEvent<HTMLButtonElement>) => {
+    setSelectedTaskId(0);
+    loadGameConfig();
+    e.currentTarget.blur();
+  };
+
   //initial setup, runs on mount
   //instantiate engine, register state listener, register keyboard handler, start server
   useEffect(() => {
     try {
-      gameEngine.current = new GameEngine(defaultSandboxConfig);
+      gameEngine.current = new GameEngine();
       const unsubscribe = gameEngine.current.subscribe(
         (snapshot: GameSnapshot) => setGameState(snapshot),
       );
       gameEngine.current.start();
+      loadGameConfig();
 
       return () => {
         gameEngine.current?.stop();
         unsubscribe();
       };
-    } catch (error: unknown) {
+    } catch (error) {
       if (error instanceof Error) {
         console.error("Logged Error:", error.message); // Safely access .message
       } else {
@@ -194,7 +238,10 @@ function SandboxPage() {
   //sets diag data to 'null' if taskId diagnostic data was not found in gameEngine
   //or if gameEngine not initialized
   useEffect(() => {
-    const newDiag = gameEngine.current?.getTaskDiag(selectedTaskId);
+    let newDiag: TaskDiag | null | undefined;
+    if (selectedTaskId !== 0) {
+      newDiag = gameEngine.current?.getTaskDiag(selectedTaskId);
+    }
     //diag found for taskId
     if (newDiag) {
       //if counts changed, set state (re-render), else NO-OP
@@ -219,136 +266,146 @@ function SandboxPage() {
     <>
       <div className="min-h-screen bg-slate-900 text-slate-100 p-6">
         <div className="max-w-7xl mx-auto flex flex-col gap-6">
-          {/* Vertical spacing between top bar and controls */}
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-[500px_1fr] gap-4 items-start">
-              {/* render a single task using provided props*/}
-              <div className="rounded-xl bg-slate-800 border border-slate-700 p-4 shadow-md min-h-50">
-                {
-                  <GameStage
-                    gameState={gameState}
-                    sandboxTaskId={selectedTaskId}
-                  />
-                }
-              </div>
-              {/* Task Result Counters & Reset Button */}
-              <div className="rounded-xl bg-slate-800 border border-slate-700 p-4 shadow-md min-h-50">
-                <div className="flex h-full flex-col justify-between">
-                  <div className="grid grid-cols-1 gap-3">
-                    {/* Task Result Counters */}
-                    <p>
-                      Total Perfect Successes:{" "}
-                      {selectedTaskDiag ? selectedTaskDiag.perfectCount : "_"}
-                    </p>
-                    <p>
-                      Total Non-Perfect Successes:{" "}
-                      {selectedTaskDiag ? selectedTaskDiag.successCount : "_"}
-                    </p>
-                    <p>
-                      Total Failures:{" "}
-                      {selectedTaskDiag ? selectedTaskDiag.failureCount : "_"}
-                    </p>
-                  </div>
-
-                  <button
-                    className="mt-4 rounded-lg border border-slate-500 bg-slate-700 px-4 py-2 text-sm font-medium text-slate-100 hover:bg-slate-600 w-fit self-start"
-                    onClick={handleDiagReset}
-                  >
-                    Reset Counts
-                  </button>
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 items-start">
+            {/* render a single task using provided props*/}
+            <div className="lg:col-span-2 rounded-xl bg-slate-800 border border-slate-700 p-4 shadow-md min-h-50">
+              <GameStage gameState={gameState} sandboxTaskId={selectedTaskId} />
+            </div>
+            {/* Task Result Counters, Reset Button, Export button */}
+            <div className="rounded-xl bg-slate-800 border border-slate-700 p-4 shadow-md min-h-50">
+              <div className="flex h-full flex-col justify-between">
+                <div className="grid grid-cols-1 gap-3">
+                  {/* Task Result Counters */}
+                  <p>
+                    Total Perfect Successes:{" "}
+                    {selectedTaskDiag ? selectedTaskDiag.perfectCount : "_"}
+                  </p>
+                  <p>
+                    Total Non-Perfect Successes:{" "}
+                    {selectedTaskDiag ? selectedTaskDiag.successCount : "_"}
+                  </p>
+                  <p>
+                    Total Failures:{" "}
+                    {selectedTaskDiag ? selectedTaskDiag.failureCount : "_"}
+                  </p>
                 </div>
+
+                <button
+                  className="mt-4 rounded-lg border border-slate-500 bg-slate-700 px-4 py-2 text-sm font-medium text-slate-100 hover:bg-slate-600 w-fit self-start"
+                  onClick={handleDiagReset}
+                >
+                  Reset Counts
+                </button>
               </div>
             </div>
-            {/* render task controlls */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Success Start Card*/}
-              <SandboxControlCard
-                label="Success Start (% of duration)"
-                value={selectedTaskConfig?.timingConfig.successStart.toString()}
-              >
-                <input
-                  className="pt-4"
-                  id="duration-input"
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={selectedTaskConfig?.timingConfig.successStart}
-                  onChange={handleSuccessStartChange}
-                />
-              </SandboxControlCard>
-              {/* Success End Card*/}
-              <SandboxControlCard
-                label="Success End (% of duration)"
-                value={selectedTaskConfig?.timingConfig.successEnd.toString()}
-              >
-                <input
-                  className="pt-4"
-                  id="duration-input"
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={selectedTaskConfig?.timingConfig.successEnd}
-                  onChange={handleSuccessEndChange}
-                />
-              </SandboxControlCard>
-              {/* Perfect Start Card*/}
-              <SandboxControlCard
-                label="Perfect Start (% of duration)"
-                value={selectedTaskConfig?.timingConfig.perfectStart.toString()}
-              >
-                <input
-                  className="pt-4"
-                  id="duration-input"
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={selectedTaskConfig?.timingConfig.perfectStart}
-                  onChange={handlePerfectStartChange}
-                />
-              </SandboxControlCard>
-              {/* Perfect End Card*/}
-              <SandboxControlCard
-                label="Perfect End (% of duration)"
-                value={selectedTaskConfig?.timingConfig.perfectEnd.toString()}
-              >
-                <input
-                  className="pt-4"
-                  id="duration-input"
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={selectedTaskConfig?.timingConfig.perfectEnd}
-                  onChange={handlePerfectEndChange}
-                />
-              </SandboxControlCard>
-              {/* Duration Card*/}
-              <SandboxControlCard
-                label="Task Duration (seconds)"
-                value={selectedTaskConfig?.duration.toString()}
-              >
-                <input
-                  className="pt-4"
-                  id="duration-input"
-                  type="range"
-                  min="0.1"
-                  max="10"
-                  step="0.1"
-                  value={selectedTaskConfig?.duration}
-                  onChange={handleDurationChange}
-                />
-              </SandboxControlCard>
-              {/* Keybind Card*/}
-              <SandboxControlCard
-                label="Task Keybind (KeyCode)"
-                value={selectedTaskConfig?.keyCode.toString()}
-              >
+            {/* Export Config Data and Reset Tasks to Default buttons */}
+            <div className="rounded-xl bg-slate-800 border border-slate-700 p-4 shadow-md min-h-50">
+              <div className="flex h-full flex-col justify-between">
                 <button
-                  ref={keybindButtonRef}
-                  className={`
+                  className="mt-4 rounded-lg border border-slate-500 bg-slate-700 px-4 py-2 text-sm font-medium text-slate-100 hover:bg-slate-600 w-fit self-start"
+                  onClick={handleExportConfig}
+                >
+                  Export Tasks
+                </button>
+                <button
+                  className="mt-4 rounded-lg border border-slate-500 bg-slate-700 px-4 py-2 text-sm font-medium text-slate-100 hover:bg-slate-600 w-fit self-start"
+                  onClick={handleResetDefault}
+                >
+                  Reset to Default
+                </button>
+              </div>
+            </div>
+          </div>
+          {/* render task controlls */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Success Start Card*/}
+            <SandboxControlCard
+              label="Success Start (% of duration)"
+              value={selectedTaskConfig?.timingConfig.successStart.toString()}
+            >
+              <input
+                className="pt-4"
+                id="duration-input"
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={selectedTaskConfig?.timingConfig.successStart}
+                onChange={handleSuccessStartChange}
+              />
+            </SandboxControlCard>
+            {/* Success End Card*/}
+            <SandboxControlCard
+              label="Success End (% of duration)"
+              value={selectedTaskConfig?.timingConfig.successEnd.toString()}
+            >
+              <input
+                className="pt-4"
+                id="duration-input"
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={selectedTaskConfig?.timingConfig.successEnd}
+                onChange={handleSuccessEndChange}
+              />
+            </SandboxControlCard>
+            {/* Perfect Start Card*/}
+            <SandboxControlCard
+              label="Perfect Start (% of duration)"
+              value={selectedTaskConfig?.timingConfig.perfectStart.toString()}
+            >
+              <input
+                className="pt-4"
+                id="duration-input"
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={selectedTaskConfig?.timingConfig.perfectStart}
+                onChange={handlePerfectStartChange}
+              />
+            </SandboxControlCard>
+            {/* Perfect End Card*/}
+            <SandboxControlCard
+              label="Perfect End (% of duration)"
+              value={selectedTaskConfig?.timingConfig.perfectEnd.toString()}
+            >
+              <input
+                className="pt-4"
+                id="duration-input"
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={selectedTaskConfig?.timingConfig.perfectEnd}
+                onChange={handlePerfectEndChange}
+              />
+            </SandboxControlCard>
+            {/* Duration Card*/}
+            <SandboxControlCard
+              label="Task Duration (seconds)"
+              value={selectedTaskConfig?.duration.toString()}
+            >
+              <input
+                className="pt-4"
+                id="duration-input"
+                type="range"
+                min="0.1"
+                max="10"
+                step="0.1"
+                value={selectedTaskConfig?.duration}
+                onChange={handleDurationChange}
+              />
+            </SandboxControlCard>
+            {/* Keybind Card*/}
+            <SandboxControlCard
+              label="Task Keybind (KeyCode)"
+              value={selectedTaskConfig?.keyCode.toString()}
+            >
+              <button
+                ref={keybindButtonRef}
+                className={`
                   w-full rounded-lg border px-4 py-4 text-sm font-medium transition-all duration-150
                   active:scale-95
                   ${
@@ -357,42 +414,42 @@ function SandboxPage() {
                       : "bg-slate-700 border-slate-500 text-slate-100 hover:bg-slate-600 hover:border-slate-400"
                   }
                 `}
-                  id="rebind-task-key"
-                  onClick={handleKeybindClick}
-                >
-                  {!keyCaptureActive
-                    ? "Press to rebind"
-                    : "Select char key or [Esc])"}
-                </button>
-              </SandboxControlCard>
-              {/* Select Task by ID, default is no task*/}
-              {/* TODO: get the actual task ID list from gameEngine and default to first task*/}
-              <SandboxControlCard label="Select Task ID">
-                <select
-                  className="w-full rounded-md bg-slate-900 border border-slate-600 px-3 py-2 text-slate-100"
-                  id="taskID-select"
-                  value={selectedTaskId}
-                  onChange={handleTaskIDChange}
-                >
-                  <option className="bg-slate-900 text-slate-100" value={0}>
-                    --X--
+                id="rebind-task-key"
+                onClick={handleKeybindClick}
+              >
+                {!keyCaptureActive
+                  ? "Press to rebind"
+                  : "Select char key or [Esc])"}
+              </button>
+            </SandboxControlCard>
+            {/* Select Task by ID, default is no task*/}
+            {/* TODO: get the actual task ID list from gameEngine and default to first task*/}
+            <SandboxControlCard label="Select Task ID">
+              <select
+                className="w-full rounded-md bg-slate-900 border border-slate-600 px-3 py-2 text-slate-100"
+                id="taskID-select"
+                value={selectedTaskId}
+                onChange={handleTaskIDChange}
+              >
+                <option className="bg-slate-900 text-slate-100" value={0}>
+                  --X--
+                </option>
+                {gameState.map((gameSnapshot, index) => (
+                  <option
+                    className="bg-slate-900 text-slate-100"
+                    key={index + 1}
+                    value={gameSnapshot.id}
+                  >
+                    {gameSnapshot.id}
                   </option>
-                  {taskIdList.map((taskId, index) => (
-                    <option
-                      className="bg-slate-900 text-slate-100"
-                      key={index + 1}
-                      value={taskId}
-                    >
-                      {taskId}
-                    </option>
-                  ))}
-                </select>
-              </SandboxControlCard>
-              {/* Iteration Control Card*/}
-              <SandboxControlCard label="Task Controls">
-                <div className="grid grid-cols-3 gap-2 pt-4">
-                  <button
-                    className="
+                ))}
+              </select>
+            </SandboxControlCard>
+            {/* Iteration Control Card*/}
+            <SandboxControlCard label="Task Controls">
+              <div className="grid grid-cols-3 gap-2 pt-4">
+                <button
+                  className="
                         rounded-md
                         px-3
                         py-2
@@ -402,13 +459,13 @@ function SandboxPage() {
                         active:scale-95
                         transition
                         "
-                    type="button"
-                    onClick={handleStartClick}
-                  >
-                    Start
-                  </button>
-                  <button
-                    className="
+                  type="button"
+                  onClick={handleStartClick}
+                >
+                  Start
+                </button>
+                <button
+                  className="
                         rounded-md
                         px-3
                         py-2
@@ -418,13 +475,13 @@ function SandboxPage() {
                         active:scale-95
                         transition
                         "
-                    type="button"
-                    onClick={handleStopClick}
-                  >
-                    Stop
-                  </button>
-                  <button
-                    className="
+                  type="button"
+                  onClick={handleStopClick}
+                >
+                  Stop
+                </button>
+                <button
+                  className="
                         rounded-md
                         px-3
                         py-2
@@ -434,14 +491,13 @@ function SandboxPage() {
                         active:scale-95
                         transition
                         "
-                    type="button"
-                    onClick={handleResetClick}
-                  >
-                    Reset
-                  </button>
-                </div>
-              </SandboxControlCard>
-            </div>
+                  type="button"
+                  onClick={handleResetClick}
+                >
+                  Reset
+                </button>
+              </div>
+            </SandboxControlCard>
           </div>
         </div>
       </div>

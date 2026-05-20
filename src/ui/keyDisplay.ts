@@ -49,7 +49,7 @@ const keyMap: Record<string, string> = {
   Numpad9: "n9",
 };
 
-//looks up keyCode from keyboard event and returns display name, or null if keyCode is not for an alphanumeric key
+//looks up keyCode from keyboard event and returns display name, or empty string if keyCode is not for an alphanumeric key
 function getKeyDisplayName(keyCode: string): string {
   return keyCode in keyMap ? keyMap[keyCode] : "";
 }

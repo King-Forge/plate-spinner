@@ -2,14 +2,16 @@ import Task from "./Task";
 import type {
   TaskSnapshot,
   EngineListener,
-  StartupConfig,
+  GameConfig,
   TaskConfig,
   TaskConfigPatch,
   TaskDiag,
 } from "./gameTypes";
 import { buildTaskDiag } from "./gameTypes";
+import validateConfig from "../config/validateConfig";
 
 class GameEngine {
+  //TODO: Tasks[] and diagData[] should not be different variables, easy to desync taskId list
   private lastTime: number = 0;
   private frameId: number | null = null;
   private running: boolean = false;
@@ -17,12 +19,40 @@ class GameEngine {
   private listeners: EngineListener[] = [];
   private diagData: TaskDiag[] = [];
 
-  constructor({ taskConfigs }: StartupConfig) {
-    for (const taskConfig of taskConfigs) {
+  /*constructor(gameConfig: GameConfig) {
+    for (const taskConfig of gameConfig) {
       this.tasks.push(new Task(taskConfig));
       this.diagData.push(buildTaskDiag(taskConfig.id));
     }
-  }
+  }*/
+
+  //re-load task config data; stops all running tasks and replaces all task and diagnostic data
+  public setGameConfig = (gameConfig: GameConfig) => {
+    //validata gameConfig using helper function
+    if (validateConfig(gameConfig) === false) {
+      console.error(
+        "Config file failed validation and cannot be imported in SetGameConfig",
+        gameConfig,
+      );
+      return;
+    }
+
+    //stop and clear old task data
+    this.tasks.forEach((task) => {
+      task.stop();
+    });
+    this.tasks = [];
+    this.diagData = [];
+
+    //load tasks and create new diagData
+    for (const taskConfig of gameConfig) {
+      this.tasks.push(new Task(taskConfig));
+      this.diagData.push(buildTaskDiag(taskConfig.id));
+    }
+
+    //push initial snapshot
+    this.pushSnapshot();
+  };
 
   //registers snapshot listener callback, returns function to remove callback
   public subscribe = (listener: EngineListener) => {
@@ -134,6 +164,7 @@ class GameEngine {
     }
   };
 
+  //updates curent task config data with argument data - used for sandbox controls
   public patchTaskConfig = (taskId: number, configPatch: TaskConfigPatch) => {
     const foundTask = this.tasks.find((task) => task.getId() === taskId);
     if (foundTask) {
