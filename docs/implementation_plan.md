@@ -1,6 +1,6 @@
-# Implementation Plan (COMPLETE 20 May 2026)
+# Implementation Plan
 
-## Sandbox (Task Tuning Tool)
+## Sandbox (Task Tuning Tool)  (COMPLETE 20 May 2026)
 - Already done during design:
   - Basic sandbox separates render, game engine, task
   - Can change task parameters by changing constants in game engine
