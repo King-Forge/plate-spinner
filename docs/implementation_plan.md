@@ -1,6 +1,6 @@
 # Implementation Plan
 
-## Sandbox (Task Tuning Tool)  (COMPLETE 20 May 2026)
+## Sandbox (Task Tuning Tool)
 - Already done during design:
   - Basic sandbox separates render, game engine, task
   - Can change task parameters by changing constants in game engine
@@ -15,6 +15,13 @@
     - perfect, perfect interval end
     - failure, failure interval end
     - critical warning
+   
+- COMPLETE 20 May 2026
+  - Config persistence approach changed:
+    - original: build-time TS config import
+    - current: runtime JSON load from /public, export triggers file download
+  - Deferred:
+    - schema validation library (Zod?) for production config import
 
 ## Vertical Slices
 1. Implement static UI to wrap game stage, doesn't have to include graphics, just functionality (STARTED 20 May 2026)
