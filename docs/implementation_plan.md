@@ -15,9 +15,16 @@
     - perfect, perfect interval end
     - failure, failure interval end
     - critical warning
+   
+- COMPLETE 20 May 2026
+  - Config persistence approach changed:
+    - original: build-time TS config import
+    - current: runtime JSON load from /public, export triggers file download
+  - Deferred:
+    - schema validation library (Zod?) for production config import
 
 ## Vertical Slices
-1. Implement static UI to wrap game stage, doesn't have to include graphics, just functionality
+1. Implement static UI to wrap game stage, doesn't have to include graphics, just functionality (STARTED 20 May 2026)
   - Start menu
   - Pause menu
   - About page
