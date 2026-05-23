@@ -1,12 +1,14 @@
 import "./App.css";
 import SandboxPage from "./game/render/SandboxPage";
+import GamePage from "./game/render/GamePage";
+import type { GameMode } from "./game/core/gameTypes";
 
 function App() {
+  const gameMode: GameMode = "game";
+
   return (
     <>
-      <h1>Plate Spinner (project placeholder name)</h1>
-      <h3>Sandbox utility for creating and tuning individual tasks</h3>
-      <div>{SandboxPage()}</div>
+      <div>{gameMode === "sandbox" ? <SandboxPage /> : <GamePage />}</div>
     </>
   );
 }

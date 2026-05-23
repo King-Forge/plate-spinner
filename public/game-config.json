@@ -9,38 +9,5 @@
       "perfectEnd": 0.55
     },
     "duration": 1.5
-  },
-  {
-    "id": 2,
-    "keyCode": "KeyB",
-    "timingConfig": {
-      "successStart": 0.6,
-      "successEnd": 0.9,
-      "perfectStart": 0.9,
-      "perfectEnd": 1
-    },
-    "duration": 1
-  },
-  {
-    "id": 3,
-    "keyCode": "KeyC",
-    "timingConfig": {
-      "successStart": 0.35,
-      "successEnd": 0.83,
-      "perfectStart": 0.38,
-      "perfectEnd": 0.55
-    },
-    "duration": 1.5
-  },
-  {
-    "id": 4,
-    "keyCode": "KeyD",
-    "timingConfig": {
-      "successStart": 0.6,
-      "successEnd": 0.92,
-      "perfectStart": 0.95,
-      "perfectEnd": 1
-    },
-    "duration": 1
   }
 ]

@@ -76,21 +76,15 @@ function SandboxPage() {
     setSelectedTaskId(Number(e.target.value));
   };
 
-  //call GameEngine to start task (pass taskID);
-  const handleStartClick = (e: React.MouseEvent<HTMLButtonElement>) => {
-    gameEngine.current?.startTask(selectedTaskId);
+  //call GameEngine to resume simulation;
+  const handleResumeClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    gameEngine.current?.requestGameResume();
     e.currentTarget.blur();
   };
 
-  //call GameEngine to stop task (pass taskID);
-  const handleStopClick = (e: React.MouseEvent<HTMLButtonElement>) => {
-    gameEngine.current?.stopTask(selectedTaskId);
-    e.currentTarget.blur();
-  };
-
-  //call GameEngine to reset task progress (pass taskID);
-  const handleResetClick = (e: React.MouseEvent<HTMLButtonElement>) => {
-    gameEngine.current?.resetTask(selectedTaskId);
+  //call GameEngine to pause simulation;
+  const handlePauseClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    gameEngine.current?.requestGamePause();
     e.currentTarget.blur();
   };
 
@@ -105,12 +99,15 @@ function SandboxPage() {
   };
 
   //load config data from static config file, then send to gameEngine
-  //calling code (if not on mount) should setSelectedTaskId(0);
-  const loadGameConfig = useCallback(async () => {
+  //after load, starts and pauses simulation state
+  const loadSandboxConfig = useCallback(async () => {
+    gameEngine.current?.requestGameStop();
     const response = await fetch("/game-config.json");
     const jsonData = await response.json();
     const gameConfig = jsonData as GameConfig;
     gameEngine.current?.setGameConfig(gameConfig);
+    gameEngine.current?.requestGameStart();
+    gameEngine.current?.requestGamePause();
   }, []);
 
   //constructs an array of config data for all active tasks
@@ -141,17 +138,17 @@ function SandboxPage() {
     e.currentTarget.blur();
   };
 
-  //reset selected task to default
-  //re-load game config from file
-  //re-initializes all progress, diagData, task status
+  //end game, re-load game config from file, re-start game and immediately pause
   const handleResetDefault = (e: React.MouseEvent<HTMLButtonElement>) => {
     setSelectedTaskId(0);
-    loadGameConfig();
+    gameEngine.current?.requestGameStop();
+    loadSandboxConfig();
     e.currentTarget.blur();
   };
 
   //initial setup, runs on mount
-  //instantiate engine, register state listener, register keyboard handler, start server
+  //instantiate engine, register state listener, register keyboard handler
+  //start game and pause game
   useEffect(() => {
     try {
       gameEngine.current = new GameEngine();
@@ -159,9 +156,10 @@ function SandboxPage() {
         (snapshot: GameSnapshot) => setGameState(snapshot),
       );
       gameEngine.current.start();
-      loadGameConfig();
+      loadSandboxConfig();
 
       return () => {
+        gameEngine.current?.requestGameStop();
         gameEngine.current?.stop();
         unsubscribe();
       };
@@ -172,7 +170,7 @@ function SandboxPage() {
         console.error("An unknown error occurred", error);
       }
     }
-  }, []);
+  }, [loadSandboxConfig]);
 
   //re-initialize keyboard handler when task ID changes or when keybind state changes to prevent stale closures
   useEffect(() => {
@@ -266,10 +264,20 @@ function SandboxPage() {
     <>
       <div className="min-h-screen bg-slate-900 text-slate-100 p-6">
         <div className="max-w-7xl mx-auto flex flex-col gap-6">
+          {/* title / temporary page label */}
+          <header className="rounded-xl border border-slate-700 bg-slate-800 p-4 shadow-md">
+            Plate Spinner Sandbox Tool (WIP)
+          </header>
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 items-start">
             {/* render a single task using provided props*/}
             <div className="lg:col-span-2 rounded-xl bg-slate-800 border border-slate-700 p-4 shadow-md min-h-50">
-              <GameStage gameState={gameState} sandboxTaskId={selectedTaskId} />
+              <GameStage
+                gameState={gameState}
+                sandboxTaskId={selectedTaskId}
+                containerWidth={440}
+                containerHeight={150}
+                levelData={{ levelWidth: 440, levelHeight: 150 }}
+              />
             </div>
             {/* Task Result Counters, Reset Button, Export button */}
             <div className="rounded-xl bg-slate-800 border border-slate-700 p-4 shadow-md min-h-50">
@@ -447,7 +455,7 @@ function SandboxPage() {
             </SandboxControlCard>
             {/* Iteration Control Card*/}
             <SandboxControlCard label="Task Controls">
-              <div className="grid grid-cols-3 gap-2 pt-4">
+              <div className="grid grid-cols-2 gap-2 pt-4">
                 <button
                   className="
                         rounded-md
@@ -460,9 +468,9 @@ function SandboxPage() {
                         transition
                         "
                   type="button"
-                  onClick={handleStartClick}
+                  onClick={handleResumeClick}
                 >
-                  Start
+                  Resume
                 </button>
                 <button
                   className="
@@ -476,25 +484,9 @@ function SandboxPage() {
                         transition
                         "
                   type="button"
-                  onClick={handleStopClick}
+                  onClick={handlePauseClick}
                 >
-                  Stop
-                </button>
-                <button
-                  className="
-                        rounded-md
-                        px-3
-                        py-2
-                        font-medium
-                        bg-amber-600
-                        hover:bg-amber-500
-                        active:scale-95
-                        transition
-                        "
-                  type="button"
-                  onClick={handleResetClick}
-                >
-                  Reset
+                  Pause
                 </button>
               </div>
             </SandboxControlCard>

@@ -131,6 +131,11 @@ class Task {
     return this.config.id;
   };
 
+  //for routing input sonly to those tasks that are bound to it
+  public getKeyCode = (): string => {
+    return this.config.keyCode;
+  };
+
   //pass a copy of the config data, not a shallow copy or a reference
   public getConfig = (): TaskConfig => {
     return { ...this.config, timingConfig: { ...this.config.timingConfig } };
