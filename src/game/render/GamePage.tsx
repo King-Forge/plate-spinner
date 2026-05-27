@@ -6,8 +6,11 @@ import StartScreen from "./StartScreen";
 import AboutScreen from "./AboutScreen";
 import SettingsScreen from "./SettingsScreen";
 import PauseScreen from "./PauseScreen";
+import GameOverScreen from "./GameOverScreen";
 
 const PAUSE_BUTTON = "Escape";
+//TODO: implement actual game over criteria, this keybind is just for testing
+const GAME_OVER_BUTTON = "KeyF";
 
 //custom hook and type for preventing stale closure of keyboard handler functions
 //can offload to a seperate file if logic is reused in other pages
@@ -46,6 +49,17 @@ function GamePage() {
   });
   const gameEngine = useRef<GameEngine | null>(null);
 
+  //load config data from static config file, then send to gameEngine
+  //should only be called to initialize game/level, returns success boolean
+  const loadGameConfig = useCallback(async () => {
+    //open loading screen and prevent other inputs while config file is fetched/loaded
+    const response = await fetch("/game-config.json");
+    const jsonData = await response.json();
+    const gameConfig = jsonData as GameConfig;
+    if (gameEngine.current?.setGameConfig(gameConfig)) return true;
+    else return false;
+  }, []);
+
   //user pauses during a run
   const handlePause = useCallback(() => {
     //no-op unless game can be paused (must be running) or resumed (must be paused with no overlay)
@@ -69,47 +83,6 @@ function GamePage() {
       }
     }
   }, [gameUIState]);
-
-  const actionMap = useMemo(() => ({ Escape: handlePause }), [handlePause]);
-
-  useKeyboardControls(actionMap, gameEngine);
-
-  //load config data from static config file, then send to gameEngine
-  //should only be called to initialize game/level, returns success boolean
-  const loadGameConfig = useCallback(async () => {
-    //open loading screen and prevent other inputs while config file is fetched/loaded
-    const response = await fetch("/game-config.json");
-    const jsonData = await response.json();
-    const gameConfig = jsonData as GameConfig;
-    if (gameEngine.current?.setGameConfig(gameConfig)) return true;
-    else return false;
-  }, []);
-
-  //initial setup, runs on mount
-  //instantiate engine, register state listener, register keyboard handler, start server
-  useEffect(() => {
-    gameEngine.current = new GameEngine();
-    const unsubscribe = gameEngine.current.subscribe((snapshot: GameSnapshot) =>
-      setGameState(snapshot),
-    );
-    gameEngine.current.start();
-    const initialize = async () => {
-      const goodInit = await loadGameConfig();
-
-      if (goodInit) {
-        setGameUIState({ state: "start", overlay: "none" });
-      } else {
-        //TODO: loading error handler here
-      }
-    };
-
-    initialize();
-
-    return () => {
-      gameEngine.current?.stop();
-      unsubscribe();
-    };
-  }, [loadGameConfig]);
 
   //user starts game from 'ready' or 'failed' state
   const handleStartGame = () => {
@@ -169,9 +142,11 @@ function GamePage() {
   };
 
   //UI response to failed game run, does not impact gameEngine
-  const handleRunFailed = () => {
-    //no-op unless game was running
-    if (gameUIState.state !== "running") {
+  //TODO: remove useCallback(), it's only here because of the keybind action map, should be an engine state driven function
+  //TODO: This is inverted, should be driven by gameEngine not UI unless manually initiated by user from pause menu
+  const handleRunFailed = useCallback(() => {
+    //no-op unless game was running (engine driven fail) or paused (user quits)
+    if (gameUIState.state === "start" || gameUIState.state === "failed") {
       return;
     }
     //gameEngine has reported failure of a running game
@@ -183,7 +158,44 @@ function GamePage() {
       //TODO: remove this stub
       setGameUIState({ state: "failed", overlay: "none" });
     }
-  };
+  }, [gameUIState]);
+
+  //TODO: implement actual game over criteria, this keybind is just for testing
+  const actionMap = useMemo(
+    () => ({
+      [PAUSE_BUTTON]: handlePause,
+      [GAME_OVER_BUTTON]: handleRunFailed,
+    }),
+    [handlePause, handleRunFailed],
+  );
+
+  useKeyboardControls(actionMap, gameEngine);
+
+  //initial setup, runs on mount
+  //instantiate engine, register state listener, register keyboard handler, start server
+  useEffect(() => {
+    gameEngine.current = new GameEngine();
+    const unsubscribe = gameEngine.current.subscribe((snapshot: GameSnapshot) =>
+      setGameState(snapshot),
+    );
+    gameEngine.current.start();
+    const initialize = async () => {
+      const goodInit = await loadGameConfig();
+
+      if (goodInit) {
+        setGameUIState({ state: "start", overlay: "none" });
+      } else {
+        //TODO: loading error handler here
+      }
+    };
+
+    initialize();
+
+    return () => {
+      gameEngine.current?.stop();
+      unsubscribe();
+    };
+  }, [loadGameConfig]);
 
   return (
     <>
@@ -214,7 +226,21 @@ function GamePage() {
           onAbout={handleAboutGame}
         />
       )}
-      {gameUIState.state === "paused" && <PauseScreen onResume={handlePause} />}
+      {gameUIState.state === "paused" && (
+        <PauseScreen
+          onResume={handlePause}
+          onQuit={handleRunFailed}
+          onSettings={handleSettings}
+          onAbout={handleAboutGame}
+        />
+      )}
+      {gameUIState.state === "failed" && (
+        <GameOverScreen
+          onRestart={handleStartGame}
+          onSettings={handleSettings}
+          onAbout={handleAboutGame}
+        />
+      )}
       {gameUIState.overlay === "about" && (
         <AboutScreen onClose={handleAboutGame} />
       )}
