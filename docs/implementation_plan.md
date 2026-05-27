@@ -1,6 +1,6 @@
 # Implementation Plan
 
-## Sandbox (Task Tuning Tool)
+## Sandbox (Task Tuning Tool) - COMPLETE
 - Already done during design:
   - Basic sandbox separates render, game engine, task
   - Can change task parameters by changing constants in game engine
@@ -23,18 +23,42 @@
   - Deferred:
     - schema validation library (Zod?) for production config import
 
-## Vertical Slices
+## Vertical Slices - INPROC
 1. Implement static UI to wrap game stage, doesn't have to include graphics, just functionality (STARTED 20 May 2026)
   - Start menu
   - Pause menu
   - About page
   - Settings page
   - Fail page
+  - Complete 27 May 2026
+    - Reusable GameStage now supports Game and Sandbox.
+    - Added GamePage keyboard input routing w/ custom hook to prevent constant rebinding
+    - GameEngine now differentiates between engine state (running boolean) and game state (ready, running, paused, failed)
+    - Static pages for start, pause, about, settings, and game over
+    - Tested all state transitions manually - temporary keybind to force 'game over'
+    - Added option to quit run from pause menu
+    - Deferred:
+      - Implement engine-driven game over (needs level data/run failure criteria) - replace keybind stub
+      - Decide where failure criteria lives (in config and in-engine) - task config/level config/other
+      - Decide if sandbox-only API access needs separation and/or gating based on user credentials
+      - Implement state transition confirmation (Paused -> Quit)
+      - Cleanup/hardening (added slice 2.5 for error handling and 'fail gracefully' pass)
 
 2. Implement basic level configuration
   - Load task set from persistent data, including failure criteria
   - No progression
   - Implement run failure/termination
+
+2.5. Error handling / hardening pass
+  - Error handling/result patterns
+  - Config validation shape
+  - Snapshot push() audit
+  - Input-guard authority model
+  - Temporary console logs/code stubs/TODOs
+  - Confirmation dialogue for pause/quit flow
+  - Regression testing for SandboxPage against GameEngine/Task/Config changes
+  - Async config load failure UI
+  - Handle duplicate task/config ID (in-validation and/or in-engine)
   
 3. Implement basic progression
   - Multiple-level persistent data including progression criteria
