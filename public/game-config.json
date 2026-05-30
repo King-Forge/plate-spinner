@@ -1,13 +1,42 @@
 [
   {
     "id": 1,
-    "keyCode": "KeyA",
-    "timingConfig": {
-      "successStart": 0.35,
-      "successEnd": 0.65,
-      "perfectStart": 0.45,
-      "perfectEnd": 0.55
-    },
-    "duration": 1.5
+    "width": 880,
+    "height": 300,
+    "failureRules": [
+      { "taskId": 1, "ruleType": "missStreak", "value": 5 },
+      { "taskId": 2, "ruleType": "missStreak", "value": 5 },
+      { "taskId": 1, "ruleType": "totalMisses", "value": 10 }
+    ],
+    "taskConfigs": [
+      {
+        "id": 1,
+        "displayName": "Foo",
+        "keyBind": "KeyF",
+        "timingConfig": {
+          "successStart": 0.75,
+          "successEnd": 1,
+          "perfectStart": 0.9,
+          "perfectEnd": 1,
+          "duration": 1.5
+        },
+        "position": { "x": 20, "y": 40 },
+        "scale": 1
+      },
+      {
+        "id": 2,
+        "displayName": "Bar",
+        "keyBind": "KeyB",
+        "timingConfig": {
+          "successStart": 0.75,
+          "successEnd": 1,
+          "perfectStart": 0.9,
+          "perfectEnd": 1,
+          "duration": 0.75
+        },
+        "position": { "x": 20, "y": 120 },
+        "scale": 1
+      }
+    ]
   }
 ]

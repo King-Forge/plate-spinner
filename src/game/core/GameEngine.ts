@@ -1,18 +1,21 @@
 import Task from "./Task";
 import type {
-  TaskSnapshot,
-  EngineListener,
+  SnapshotListener,
   GameConfig,
-  TaskConfig,
   TaskConfigPatch,
-  TaskDiag,
+  TaskRecord,
   SimulationState,
+  TaskCounts,
+  LevelListener,
+  LevelConfig,
+  LevelData,
+  GameSnapshot,
+  GameSummary,
 } from "./gameTypes";
-import { buildTaskDiag } from "./gameTypes";
+import { buildCounts } from "./gameTypes";
 import validateConfig from "../config/validateConfig";
 
 class GameEngine {
-  //TODO: Tasks[] and diagData[] should not be different variables, easy to desync taskId list
   private lastTime: number = 0;
   private frameId: number | null = null;
 
@@ -22,9 +25,18 @@ class GameEngine {
   //controls if simulation is running, tasks iterate, game is progressing/paused
   private simulationState: SimulationState = "ready";
 
-  private tasks: Task[] = [];
-  private listeners: EngineListener[] = [];
-  private diagData: TaskDiag[] = [];
+  private taskRecords: TaskRecord[] = [];
+  private levelData: LevelData | null = null;
+
+  private snapshotListeners: SnapshotListener[] = [];
+  private levelListeners: LevelListener[] = [];
+
+  //message and task count summary on game over screen
+  //built when simulationStatus is set to 'failed' and cleared when game is restarted
+  private gameSummary: GameSummary = {
+    gameOverMessage: "",
+    recordSummaries: [],
+  };
 
   //re-load task config data; does not mutate simulationState or engineRunning
   //only valid if simulation is not running/paused
@@ -35,7 +47,7 @@ class GameEngine {
       this.simulationState === "paused"
     ) {
       console.error(
-        "cannot re-load configuration data while simulation is running or paused",
+        "Cannot re-load configuration data while simulation is running or paused",
         this.simulationState,
       );
       return false;
@@ -50,36 +62,63 @@ class GameEngine {
     }
 
     //stop and clear old task data
-    this.tasks.forEach((task) => {
-      task.stop();
+    this.taskRecords.forEach((taskRecord) => {
+      taskRecord.task.stop();
     });
-    this.tasks = [];
-    this.diagData = [];
+    this.taskRecords = [];
 
-    //load tasks and create new diagData
-    for (const taskConfig of gameConfig) {
-      this.tasks.push(new Task(taskConfig));
-      this.diagData.push(buildTaskDiag(taskConfig.id));
+    //load config data into memory, level data into levelData and task configs into array of taskRecords
+    //TODO: implement handling of multiple levels, right now hardcoded to only use level [0] (1)
+    this.levelData = {
+      id: gameConfig[0].id,
+      width: gameConfig[0].width,
+      height: gameConfig[0].height,
+      failureRules: gameConfig[0].failureRules,
+    };
+    for (const taskConfig of gameConfig[0].taskConfigs) {
+      this.taskRecords.push({
+        id: taskConfig.id,
+        displayName: taskConfig.displayName,
+        task: new Task(taskConfig.timingConfig),
+        counts: buildCounts(),
+        keyBind: taskConfig.keyBind,
+        //TODO: fix this to get actual values once I have them in level data
+        position: { x: taskConfig.position.x, y: taskConfig.position.y },
+        scale: taskConfig.scale,
+      });
     }
 
     //set simulation state
     this.simulationState = "ready";
 
-    //push initial snapshot
+    //push initial data
+    this.pushLevel();
     this.pushSnapshot();
 
     return true;
   };
 
-  //registers snapshot listener callback, returns function to remove callback
-  public subscribe = (listener: EngineListener) => {
-    this.listeners.push(listener);
+  //registers snapshot listener callback, which fires every frame and drives render
+  // returns function to remove callback
+  public snapshotSubscribe = (newListener: SnapshotListener) => {
+    this.snapshotListeners.push(newListener);
     return () => {
-      this.listeners = this.listeners.filter((cb) => cb != listener);
+      this.snapshotListeners = this.snapshotListeners.filter(
+        (cb) => cb != newListener,
+      );
     };
   };
 
-  //TODO: Route keys to bound tasks only
+  //registers level listener callback, which only fires when config data changes
+  // returns function to remove callback
+  public levelSubscribe = (newListener: LevelListener) => {
+    this.levelListeners.push(newListener);
+    return () => {
+      this.levelListeners = this.levelListeners.filter(
+        (cb) => cb != newListener,
+      );
+    };
+  };
 
   //processes input of bound keypresses to appropriate task
   //(singular, should be no duplicate keybinds on loaded tasks)
@@ -89,11 +128,11 @@ class GameEngine {
     if (this.engineRunning === false || this.simulationState !== "running") {
       return;
     }
-    console.log("Key pressed:", eventCode);
-    for (const task of this.tasks) {
+    console.log("Keypress sent to GameEngine.handleInput:", eventCode);
+    for (const taskRecord of this.taskRecords) {
       //only send to the first match, should be no duplicates
-      if (task.getKeyCode() === eventCode) {
-        task.handleInput(eventCode);
+      if (taskRecord.keyBind === eventCode) {
+        taskRecord.task.handleInput();
         break;
       }
     }
@@ -101,7 +140,7 @@ class GameEngine {
 
   // The main loop function, handles RAF cycle and lastTime/deltaTime regardless of game state
   private loop = (currentTime: number): void => {
-    //if engine has been stopped, disregard leftover callbacks
+    //if engine has been stopped, disregard leftover callback(s)
     if (!this.engineRunning) return;
 
     //time passed since last frame (in miliseconds)
@@ -121,45 +160,156 @@ class GameEngine {
   };
 
   //function to progress game logic by deltaTime miliseconds if simulation is running
+  //checks if failure rules have been violated and sets simulation state if needed
   //returns boolean indicating if state changed
   private update = (deltaTime: number): boolean => {
+    let stateUpdated = false;
     //only progress tasks if simulation is running (started and not paused)
     if (this.simulationState === "running") {
-      for (const task of this.tasks) {
-        const taskResult = task.update(deltaTime);
-        if (taskResult) {
-          const foundDiag = this.diagData.find(
-            (t) => t.taskId === task.getId(),
-          );
-          if (!foundDiag) {
-            console.log(
-              `Error: diagnostic data for task ${task.getId()} not found in GameEngine function Update.`,
+      stateUpdated = true;
+      for (const taskRecord of this.taskRecords) {
+        const taskResult = taskRecord.task.update(deltaTime);
+        if (taskResult === "perfect") {
+          taskRecord.counts.perfectCount++;
+          taskRecord.counts.missStreak = 0;
+        } else if (taskResult === "success") {
+          taskRecord.counts.successCount++;
+          taskRecord.counts.missStreak = 0;
+        } else if (taskResult === "miss") {
+          taskRecord.counts.missCount++;
+          taskRecord.counts.missStreak++;
+        }
+      }
+      //check new counts against failure state, set simulation state as needed
+      if (this.levelData) {
+        //iterate through each rule for this level
+        for (const failureRule of this.levelData.failureRules) {
+          //for missStreak rules, check if referenced task has reached or exceeded rule value
+          if (failureRule.ruleType === "missStreak") {
+            const foundRecord = this.taskRecords.find(
+              (taskRecord) => taskRecord.id === failureRule.taskId,
             );
-          } else if (taskResult === "perfect") {
-            foundDiag["perfectCount"]++;
-          } else if (taskResult === "success") {
-            foundDiag["successCount"]++;
-          } else if (taskResult === "failure") {
-            foundDiag["failureCount"]++;
+            //miss streak exceeded, run failed
+            if (
+              foundRecord &&
+              foundRecord.counts.missStreak >= failureRule.value
+            ) {
+              this.simulationState = "failed";
+              this.buildSummary(
+                `Run terminated due to miss streak reaching ${failureRule.value}` +
+                  ` on ${foundRecord.displayName} (task ${foundRecord.id}).`,
+              );
+              stateUpdated = true;
+            }
+          }
+          //for totalMisses rules, check if referenced task has reached or exceeded rule value
+          else if (failureRule.ruleType === "totalMisses") {
+            const foundRecord = this.taskRecords.find(
+              (taskRecord) => taskRecord.id === failureRule.taskId,
+            );
+            //total misses exceeded, run failed
+            if (
+              foundRecord &&
+              foundRecord.counts.missCount >= failureRule.value
+            ) {
+              this.simulationState = "failed";
+              this.buildSummary(
+                `Run terminated due to total misses reaching ${failureRule.value}` +
+                  ` on ${foundRecord.displayName} (task ${foundRecord.id}).`,
+              );
+              stateUpdated = true;
+              //TODO: resolve conflict or priority issues if multiple tasks fail simultaneously
+              //  this code will only print the last gameOverMessage
+              //  and will construct the counts array multiple times
+            }
           }
         }
       }
     }
 
-    //TODO: fix this to return something meaningful
-    return true;
+    //TODO: fix this to return -what- changed not just boolean (always true if one task is iterating)
+    return stateUpdated;
   };
 
   //update data store with new state to trigger react re-render
+  //called on loop-> update or whenever new state is loaded
   private pushSnapshot = (): void => {
-    //construct snapshot as an array of task snapshots
-    const snapshot: TaskSnapshot[] = [];
-    for (const task of this.tasks) {
-      snapshot.push(task.getSnapshot());
+    //no-op if levelData is not loaded
+    if (this.levelData?.id) {
+      //construct snapshot as an array of task snapshots
+      const snapshot: GameSnapshot = {
+        id: this.levelData.id,
+        runStatus: this.simulationState === "failed" ? "failed" : "ok",
+        recordSnapshots: [],
+      };
+      for (const taskRecord of this.taskRecords) {
+        snapshot.recordSnapshots.push({
+          id: taskRecord.id,
+          ...taskRecord.task.getSnapshot(),
+        });
+      }
+      //attach copy of end of game summary to snapshot
+      if (this.simulationState === "failed") {
+        snapshot.gameSummary = {
+          ...this.gameSummary,
+          recordSummaries: this.gameSummary.recordSummaries.map(
+            (recordSummary) => ({
+              ...recordSummary,
+            }),
+          ),
+        };
+      }
+      //pass snapshot to all registered listeners
+      for (const snapshotListener of this.snapshotListeners) {
+        snapshotListener(snapshot);
+      }
     }
-    //pass snapshot to all registered listeners
-    for (const listener of this.listeners) {
-      listener(snapshot);
+  };
+
+  //update level config with new state to trigger react re-render for all registered listeners
+  //called whenever level data changes (e.g. config load, patch)
+  //TODO: decide if discarding the config on load and then reconstructing it is worth it, does it change at runtime?
+  private pushLevel = (): void => {
+    //no-op if levelData is not loaded
+    if (this.levelData?.id && this.levelData?.height && this.levelData.width) {
+      const levelConfig: LevelConfig = { ...this.levelData, taskConfigs: [] };
+      //construct taskConfig as an array of taskRecord configs
+      for (const taskRecord of this.taskRecords) {
+        levelConfig.taskConfigs.push({
+          id: taskRecord.id,
+          displayName: taskRecord.displayName,
+          keyBind: taskRecord.keyBind,
+          timingConfig: taskRecord.task.getConfig(),
+          position: { ...taskRecord.position },
+          scale: taskRecord.scale,
+        });
+      }
+      //pass level config to all registered listeners
+      for (const levelListener of this.levelListeners) {
+        levelListener(levelConfig);
+      }
+    }
+  };
+
+  //little helper function to build a run summary
+  //builds a GameSummary object with specified message and all task counts
+  //or re-initializes summary if empty string is passed
+  private buildSummary = (newMessage: string) => {
+    //zero out game summary
+    if (newMessage === "") {
+      this.gameSummary.gameOverMessage = "";
+      this.gameSummary.recordSummaries = [];
+    }
+    // construct gameSummary
+    else {
+      this.gameSummary.gameOverMessage = newMessage;
+      this.gameSummary.recordSummaries = this.taskRecords.map((taskRecord) => {
+        return {
+          id: taskRecord.id,
+          displayName: taskRecord.displayName,
+          taskCounts: { ...taskRecord.counts },
+        };
+      });
     }
   };
 
@@ -179,13 +329,13 @@ class GameEngine {
     if (this.frameId) {
       cancelAnimationFrame(this.frameId);
     }
-    //stop all attached tasks
-    for (const task of this.tasks) {
-      task.stop();
-    }
+    //reset to default, uninitialized value
+    this.lastTime = 0;
   };
 
-  //request functions to change simulation state: returns true if request was valid & successful, otherwise false
+  /*request functions to change simulation state:
+  returns true if request was valid & successful, otherwise false*/
+
   //if engine is running and game is stopped, starts all active tasks and starts simulation
   public requestGameStart = (): boolean => {
     //check to see if start request is valid
@@ -202,16 +352,20 @@ class GameEngine {
 
     //if restarting from failure state, need to do some cleanup first
     if (this.simulationState === "failed") {
-      for (const task of this.tasks) {
-        task.stop();
-        task.reset();
+      for (const taskRecord of this.taskRecords) {
+        taskRecord.task.stop();
+        //make a new counts object instead of explicitly resetting values, future-proofing if I add more count types
+        taskRecord.counts = buildCounts();
+        taskRecord.task.reset();
+        //zero out last run's summary
+        this.buildSummary("");
       }
     }
 
     //set simulation state and start all loaded tasks
     this.simulationState = "running";
-    for (const task of this.tasks) {
-      task.start();
+    for (const taskRecord of this.taskRecords) {
+      taskRecord.task.start();
     }
     this.pushSnapshot();
     console.log("Simulation successfully started");
@@ -265,28 +419,51 @@ class GameEngine {
     }
 
     this.simulationState = "failed";
+    this.buildSummary("Run terminated due to user action.");
+    this.pushSnapshot();
     console.log("Simulation successfully terminated");
     return true;
   };
 
-  //utility functon to retrieve the config data of a specified task ID - used for sandbox controls
-  public getTaskConfig = (taskId: number): TaskConfig | null => {
-    const foundTask = this.tasks.find((task) => task.getId() === taskId);
-
-    if (foundTask) return foundTask.getConfig();
-    else {
-      console.log(
-        `Error, task ID ${taskId} not found in function getTaskConfig`,
-      );
-      return null;
-    }
-  };
-
   //updates curent task config data with argument data - used for sandbox controls
+  //only updates if values have changed
+  //TODO: evaluate if this is overly safe and should be (truthy) -> assignment
   public patchTaskConfig = (taskId: number, configPatch: TaskConfigPatch) => {
-    const foundTask = this.tasks.find((task) => task.getId() === taskId);
-    if (foundTask) {
-      foundTask.patchConfig(configPatch);
+    let configChanged = false;
+    const foundRecord = this.taskRecords.find(
+      (taskRecord) => taskRecord.id === taskId,
+    );
+    if (foundRecord) {
+      if (configPatch.keyBind && foundRecord.keyBind !== configPatch.keyBind) {
+        foundRecord.keyBind = configPatch.keyBind;
+        configChanged = true;
+      }
+      if (configPatch.timingConfig) {
+        foundRecord.task.patchConfig(configPatch.timingConfig);
+        configChanged = true;
+      }
+      if (configPatch.position) {
+        if (
+          configPatch.position.x &&
+          foundRecord.position.x !== configPatch.position.x
+        ) {
+          foundRecord.position.x = configPatch.position.x;
+          configChanged = true;
+        }
+        if (
+          configPatch.position.y &&
+          foundRecord.position.y !== configPatch.position.y
+        ) {
+          foundRecord.position.y = configPatch.position.y;
+          configChanged = true;
+        }
+      }
+      if (configPatch.scale && foundRecord.scale !== configPatch.scale) {
+        foundRecord.scale = configPatch.scale;
+        configChanged = true;
+      }
+      //if config data was changed, push new level data
+      if (configChanged === true) this.pushLevel();
     } else {
       console.log(
         `Error, task ID ${taskId} not found in function patchTaskConfig`,
@@ -296,31 +473,38 @@ class GameEngine {
   };
 
   //debug/sandbox helper function
-  //returns diagnostic data for specified task or null if taskId not found
-  public getTaskDiag = (taskId: number): TaskDiag | null => {
-    const foundDiag = this.diagData.find((task) => task.taskId === taskId);
-    if (!foundDiag) {
+  //returns task count data for specified task or null if taskId not found
+  public getTaskCounts = (taskId: number): TaskCounts | null => {
+    const foundRecord = this.taskRecords.find(
+      (taskRecord) => taskRecord.id === taskId,
+    );
+    ///record not found for id taskId
+    if (!foundRecord) {
       console.log(
-        `Error: diagnostic data for task ${taskId} not found in GameEngine function getTaskDiag.`,
+        `Error: count data for task ${taskId} not found in GameEngine function getTaskCounts.`,
       );
       return null;
-    } else return { ...foundDiag };
+    } else return { ...foundRecord.counts };
   };
 
   //debug/sandbox helper function
-  //resets diagnostic data for specified task to default state
-  public resetTaskDiag = (taskId: number) => {
-    const diagIndex = this.diagData.findIndex((task) => task.taskId === taskId);
-    //diag not found for id taskID
-    if (diagIndex == -1) {
+  //resets task count data for specified task to all 0s
+  public resetTaskCounts = (taskId: number) => {
+    const foundRecord = this.taskRecords.find(
+      (taskRecord) => taskRecord.id === taskId,
+    );
+    //record not found for id taskID
+    if (!foundRecord) {
       console.log(
-        `Error: diagnostic data for task ${taskId} not found in GameEngine function resetTaskDiag.`,
+        `Error: count data for task ${taskId} not found in GameEngine function resetTaskCounts.`,
       );
     }
-    //diag found, remove from diagData array and make a new diag for taskId
+    //record found, reset all three counts to 0s
     else {
-      this.diagData.splice(diagIndex, 1);
-      this.diagData.push(buildTaskDiag(taskId));
+      //make a new counts object instead of explicitly resetting values, future-proofing if I add more count types
+      foundRecord.counts = buildCounts();
+      //refresh immediately, in case simulation state is paused when this is called
+      this.pushSnapshot();
     }
   };
 }

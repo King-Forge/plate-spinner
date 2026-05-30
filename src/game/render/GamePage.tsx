@@ -1,5 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import type { GameUIState, GameSnapshot, GameConfig } from "../core/gameTypes";
+import type {
+  GameUIState,
+  GameSnapshot,
+  GameConfig,
+  LevelConfig,
+} from "../core/gameTypes";
 import GameEngine from "../core/GameEngine";
 import GameStage from "./GameStage";
 import StartScreen from "./StartScreen";
@@ -9,8 +14,9 @@ import PauseScreen from "./PauseScreen";
 import GameOverScreen from "./GameOverScreen";
 
 const PAUSE_BUTTON = "Escape";
-//TODO: implement actual game over criteria, this keybind is just for testing
-const GAME_OVER_BUTTON = "KeyF";
+
+const CONTAINER_WIDTH = 880;
+const CONTAINER_HEIGHT = 300;
 
 //custom hook and type for preventing stale closure of keyboard handler functions
 //can offload to a seperate file if logic is reused in other pages
@@ -42,17 +48,30 @@ function useKeyboardControls(
 }
 
 function GamePage() {
-  const [gameState, setGameState] = useState<GameSnapshot>([]);
+  const [gameSnapshot, setGameSnapshot] = useState<GameSnapshot>({
+    id: 0,
+    runStatus: "ok",
+    recordSnapshots: [],
+  });
+  const [levelConfig, setLevelConfig] = useState<LevelConfig>({
+    id: 0,
+    width: 0,
+    height: 0,
+    failureRules: [],
+    taskConfigs: [],
+  });
   const [gameUIState, setGameUIState] = useState<GameUIState>({
     state: "loading",
     overlay: "none",
   });
+
   const gameEngine = useRef<GameEngine | null>(null);
 
   //load config data from static config file, then send to gameEngine
   //should only be called to initialize game/level, returns success boolean
   const loadGameConfig = useCallback(async () => {
-    //open loading screen and prevent other inputs while config file is fetched/loaded
+    //TODO: open loading screen and prevent other inputs while config file is fetched/loaded
+    //implement for multiple level/progression handling - right now engine only loads config for level [0] on mount
     const response = await fetch("/game-config.json");
     const jsonData = await response.json();
     const gameConfig = jsonData as GameConfig;
@@ -64,8 +83,8 @@ function GamePage() {
   const handlePause = useCallback(() => {
     //no-op unless game can be paused (must be running) or resumed (must be paused with no overlay)
     if (
-      gameUIState.state === "failed" ||
       gameUIState.state === "start" ||
+      gameUIState.state === "loading" ||
       gameUIState.overlay !== "none"
     ) {
       return;
@@ -84,7 +103,7 @@ function GamePage() {
     }
   }, [gameUIState]);
 
-  //user starts game from 'ready' or 'failed' state
+  //user starts game from 'start' or 'failed' state
   const handleStartGame = () => {
     //no-op unless game can be started (in start or failed state with no overlay)
     if (
@@ -102,7 +121,11 @@ function GamePage() {
   //open/close settings menu, does not impact gameEngine
   const handleSettings = () => {
     //no-op unless settings overlay can be opened/closed (must not be running & about must not be open)
-    if (gameUIState.state === "running" || gameUIState.overlay === "about") {
+    if (
+      gameUIState.state === "running" ||
+      gameUIState.state === "loading" ||
+      gameUIState.overlay === "about"
+    ) {
       return;
     }
     //open settings
@@ -123,7 +146,11 @@ function GamePage() {
   //open/close about menu, does not impact gameEngine
   const handleAboutGame = () => {
     //no-op unless settings overlay can be opened/closed (must not be running & settings must not be open)
-    if (gameUIState.state === "running" || gameUIState.overlay === "settings") {
+    if (
+      gameUIState.state === "running" ||
+      gameUIState.state === "loading" ||
+      gameUIState.overlay === "settings"
+    ) {
       return;
     }
     //open about
@@ -141,44 +168,54 @@ function GamePage() {
     }
   };
 
-  //UI response to failed game run, does not impact gameEngine
-  //TODO: remove useCallback(), it's only here because of the keybind action map, should be an engine state driven function
-  //TODO: This is inverted, should be driven by gameEngine not UI unless manually initiated by user from pause menu
-  const handleRunFailed = useCallback(() => {
-    //no-op unless game was running (engine driven fail) or paused (user quits)
-    if (gameUIState.state === "start" || gameUIState.state === "failed") {
+  //called when user ends run from pause menu, requests simulaton stop.
+  // Resulting state change (and GameEngine driven run failure) handled in render
+  const handleQuitRun = () => {
+    //no-op unless game is paused
+    if (gameUIState.state != "paused") {
       return;
     }
-    //gameEngine has reported failure of a running game
-
-    //stub for state transition testing, not needed in actual gameplay
-    //gameEngine will stop itself then report failure
-    //TODO: remove this stub
+    //stop simulation
     if (gameEngine.current?.requestGameStop()) {
-      //TODO: remove this stub
+      //if simulation successfully stopped, update UI state
       setGameUIState({ state: "failed", overlay: "none" });
     }
-  }, [gameUIState]);
+  };
 
-  //TODO: implement actual game over criteria, this keybind is just for testing
+  const gameSnapshotListener = useCallback((snapshot: GameSnapshot) => {
+    setGameSnapshot(snapshot);
+    if (snapshot.runStatus === "failed") {
+      setGameUIState((prev) => {
+        if (prev.state !== "failed") {
+          return { state: "failed", overlay: "none" };
+        } else {
+          return prev;
+        }
+      });
+    }
+  }, []);
+
   const actionMap = useMemo(
     () => ({
       [PAUSE_BUTTON]: handlePause,
-      [GAME_OVER_BUTTON]: handleRunFailed,
     }),
-    [handlePause, handleRunFailed],
+    [handlePause],
   );
 
   useKeyboardControls(actionMap, gameEngine);
 
   //initial setup, runs on mount
-  //instantiate engine, register state listener, register keyboard handler, start server
+  //instantiate engine, register snapshot/config listener, register keyboard handler, start server
   useEffect(() => {
     gameEngine.current = new GameEngine();
-    const unsubscribe = gameEngine.current.subscribe((snapshot: GameSnapshot) =>
-      setGameState(snapshot),
+    const snapshotUnsubscribe =
+      gameEngine.current.snapshotSubscribe(gameSnapshotListener);
+    const levelUnsubscribe = gameEngine.current.levelSubscribe(
+      (levelConfig: LevelConfig) => setLevelConfig(levelConfig),
     );
     gameEngine.current.start();
+
+    //async inner function to await config load before UI shows start screen/button
     const initialize = async () => {
       const goodInit = await loadGameConfig();
 
@@ -192,10 +229,12 @@ function GamePage() {
     initialize();
 
     return () => {
+      gameEngine.current?.requestGameStop();
       gameEngine.current?.stop();
-      unsubscribe();
+      snapshotUnsubscribe();
+      levelUnsubscribe();
     };
-  }, [loadGameConfig]);
+  }, [loadGameConfig, gameSnapshotListener]);
 
   return (
     <>
@@ -210,10 +249,10 @@ function GamePage() {
           <section className="rounded-xl border border-slate-700 bg-slate-800 p-4 shadow-md">
             <div className="flex w-full justify-center overflow-hidden rounded-lg">
               <GameStage
-                gameState={gameState}
-                containerWidth={880}
-                containerHeight={300}
-                levelData={{ levelWidth: 440, levelHeight: 150 }}
+                gameSnapshot={gameSnapshot}
+                levelConfig={levelConfig}
+                containerWidth={CONTAINER_WIDTH}
+                containerHeight={CONTAINER_HEIGHT}
               />
             </div>
           </section>
@@ -229,7 +268,7 @@ function GamePage() {
       {gameUIState.state === "paused" && (
         <PauseScreen
           onResume={handlePause}
-          onQuit={handleRunFailed}
+          onQuit={handleQuitRun}
           onSettings={handleSettings}
           onAbout={handleAboutGame}
         />
@@ -239,6 +278,7 @@ function GamePage() {
           onRestart={handleStartGame}
           onSettings={handleSettings}
           onAbout={handleAboutGame}
+          gameSummary={gameSnapshot.gameSummary}
         />
       )}
       {gameUIState.overlay === "about" && (

@@ -1,12 +1,12 @@
 import type {
   TaskStatus,
   TaskSnapshot,
-  TaskConfig,
-  TaskConfigPatch,
+  TaskTimingConfig,
+  TaskTimingConfigPatch,
 } from "./gameTypes";
 
 class Task {
-  private config: TaskConfig;
+  private config: TaskTimingConfig;
   private status: TaskStatus = "idle";
   //0-1, percentage of task duration
   private progress: number = 0;
@@ -14,15 +14,16 @@ class Task {
 
   //time in ms the task should 'flash' with a status color
   private flashTime: number = 0;
-  //flash color (redundant in every case except idle failure)
+  //flash color (redundant in every case except idle miss)
   private flashStatus: TaskStatus | null = null;
 
   //status change pulls time in ms
+  //TODO: offload this to config
   private FLASH_TIME: number = 200;
 
-  //constructor accepts task Id number, key used to trigger task, timing config data object, and optional task duration in seconds
-  constructor(newConfig: TaskConfig) {
-    this.config = { ...newConfig, timingConfig: { ...newConfig.timingConfig } };
+  //constructor accepts task timing config data object and creates Task object
+  constructor(newConfig: TaskTimingConfig) {
+    this.config = { ...newConfig };
   }
 
   public start = (): void => {
@@ -50,31 +51,32 @@ class Task {
     let result = null;
     //task no active, do nothing
     if (this.status == "idle") {
-      return null;
+      return result;
     }
     //advance progress by time delta in ms proportional to duration
     this.progress += deltaTime / 1000 / this.config.duration;
     //if prograss past 1, roll back to 0.n (looped for edge cases of deltaTime > duration)
-    //TODO: need a better way to handle delta T of more than one second. For example: pause game loop when focus is lost or browser cannot redraw
+    /*TODO: need a better way to mitigate & handle delta T of more than one second.
+      For example: pause game loop when focus is lost or browser cannot redraw*/
     while (this.progress > 1) {
-      //if progress past 1 and state is still 'active' (i.e. no input), log failed task'
+      //if progress past 1 and state is still 'active' (i.e. no input), log missed task'
       if (this.status == "active") {
-        this.status = "failure";
+        this.status = "miss";
         this.flashTime = this.FLASH_TIME;
-        this.flashStatus = "failure";
-        result = "failure";
+        this.flashStatus = "miss";
+        result = "miss";
       }
 
       //now, check result of the current iteration
-      if (this.status == "failure") {
-        console.log("Task Failure");
+      if (this.status === "miss") {
+        console.log("Task Miss");
         this.status = "active";
-        result = "failure";
-      } else if (this.status == "success") {
+        result = "miss";
+      } else if (this.status === "success") {
         console.log("Task Successful");
         this.status = "active";
         result = "success";
-      } else if (this.status == "perfect") {
+      } else if (this.status === "perfect") {
         console.log("Perfect! Nice job!");
         this.status = "active";
         result = "perfect";
@@ -92,70 +94,53 @@ class Task {
 
   public getSnapshot = (): TaskSnapshot => {
     return {
-      id: this.config.id,
-      keyCode: this.config.keyCode,
-      status: this.status,
       progress: this.progress,
-      timingConfig: { ...this.config.timingConfig },
       flashStatus: this.flashStatus,
     };
   };
 
-  //game engine should only pass key events to bound tasks, still double check
-  public handleInput = (eventCode: string) => {
-    if (eventCode === this.config.keyCode && this.status == "active") {
+  //game engine should only pass key events to bound tasks
+  //TODO: decide if a double input code guard is necessary/practical, now that Task doesn't know its keybind
+  public handleInput = () => {
+    if (this.status == "active") {
       if (
-        this.progress > this.config.timingConfig.perfectStart &&
-        this.progress < this.config.timingConfig.perfectEnd
+        this.progress > this.config.perfectStart &&
+        this.progress < this.config.perfectEnd
       ) {
         this.status = "perfect";
         this.flashTime = this.FLASH_TIME;
         this.flashStatus = "perfect";
       } else if (
-        this.progress > this.config.timingConfig.successStart &&
-        this.progress < this.config.timingConfig.successEnd
+        this.progress > this.config.successStart &&
+        this.progress < this.config.successEnd
       ) {
         this.status = "success";
         this.flashTime = this.FLASH_TIME;
         this.flashStatus = "success";
       } else {
-        this.status = "failure";
+        this.status = "miss";
         this.flashTime = this.FLASH_TIME;
-        this.flashStatus = "failure";
+        this.flashStatus = "miss";
       }
     }
   };
 
-  //TODO: implement task ID map in game engine so this doesn't get queried every time you need to find a specific task
-  public getId = (): number => {
-    return this.config.id;
-  };
-
-  //for routing input sonly to those tasks that are bound to it
-  public getKeyCode = (): string => {
-    return this.config.keyCode;
-  };
-
-  //pass a copy of the config data, not a shallow copy or a reference
-  public getConfig = (): TaskConfig => {
-    return { ...this.config, timingConfig: { ...this.config.timingConfig } };
+  //pass a copy of the timing config data, not a shallow copy or a reference
+  public getConfig = (): TaskTimingConfig => {
+    return { ...this.config };
   };
 
   //function to change config data of a task, primarily used for sandbox tuning
-  //to prevent conflicts, task ID is set only when task is loaded
-  public patchConfig = (configPatch: TaskConfigPatch) => {
+  public patchConfig = (configPatch: TaskTimingConfigPatch) => {
     if (configPatch.duration) this.config.duration = configPatch.duration;
-    if (configPatch.keyCode) this.config.keyCode = configPatch.keyCode;
-    if (configPatch.timingConfig?.successStart)
-      this.config.timingConfig.successStart =
-        configPatch.timingConfig.successStart;
-    if (configPatch.timingConfig?.successEnd)
-      this.config.timingConfig.successEnd = configPatch.timingConfig.successEnd;
-    if (configPatch.timingConfig?.perfectStart)
-      this.config.timingConfig.perfectStart =
-        configPatch.timingConfig.perfectStart;
-    if (configPatch.timingConfig?.perfectEnd)
-      this.config.timingConfig.perfectEnd = configPatch.timingConfig.perfectEnd;
+    if (configPatch.successStart)
+      this.config.successStart = configPatch.successStart;
+    if (configPatch?.successEnd)
+      this.config.successEnd = configPatch.successEnd;
+    if (configPatch?.perfectStart)
+      this.config.perfectStart = configPatch.perfectStart;
+    if (configPatch?.perfectEnd)
+      this.config.perfectEnd = configPatch.perfectEnd;
   };
 }
 

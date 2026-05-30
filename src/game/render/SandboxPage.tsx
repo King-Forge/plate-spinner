@@ -1,75 +1,74 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type {
   GameSnapshot,
-  TaskConfig,
-  TaskDiag,
+  TaskCounts,
   GameConfig,
+  LevelConfig,
 } from "../core/gameTypes";
 import GameEngine from "../core/GameEngine";
 import GameStage from "./GameStage";
 import SandboxControlCard from "./SandboxcontrolCard";
+import { renderConfig } from "./renderConfig";
 
 function SandboxPage() {
-  const [gameState, setGameState] = useState<GameSnapshot>([]);
+  const CONTAINER_WIDTH = 440;
+  const CONTAINER_HEIGHT = 150;
+
+  const [gameSnapshot, setGameSnapshot] = useState<GameSnapshot>({
+    id: 0,
+    runStatus: "ok",
+    recordSnapshots: [],
+  });
+  const [levelConfig, setLevelConfig] = useState<LevelConfig>({
+    id: 0,
+    width: 0,
+    height: 0,
+    failureRules: [],
+    taskConfigs: [],
+  });
   const gameEngine = useRef<GameEngine | null>(null);
 
   //these are UI parameters, they don't control game logic, call game engine functions for that
   const [selectedTaskId, setSelectedTaskId] = useState<number>(0);
-  const [selectedTaskConfig, setSelectedTaskConfig] =
-    useState<TaskConfig | null>(null);
+  //const [selectedTaskConfig, setSelectedTaskConfig] =
+  //    useState<TaskConfig | null>(null);
   const [keyCaptureActive, setKeyCaptureActive] = useState<boolean>(false);
   //used to blur keybind button after keyboard event
   const keybindButtonRef = useRef<HTMLButtonElement | null>(null);
 
   //counters for task results
-  const [selectedTaskDiag, setSelectedTaskDiag] = useState<TaskDiag | null>(
-    null,
-  );
+  const [selectedTaskCounts, setSelectedTaskCounts] =
+    useState<TaskCounts | null>(null);
 
   //control event handlers
   const handleSuccessStartChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     gameEngine.current?.patchTaskConfig(selectedTaskId, {
       timingConfig: { successStart: Number(e.target.value) },
     });
-
-    const config = gameEngine.current?.getTaskConfig(selectedTaskId) ?? null;
-    setSelectedTaskConfig(config);
   };
 
   const handleSuccessEndChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     gameEngine.current?.patchTaskConfig(selectedTaskId, {
       timingConfig: { successEnd: Number(e.target.value) },
     });
-
-    const config = gameEngine.current?.getTaskConfig(selectedTaskId) ?? null;
-    setSelectedTaskConfig(config);
   };
 
   const handlePerfectStartChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     gameEngine.current?.patchTaskConfig(selectedTaskId, {
       timingConfig: { perfectStart: Number(e.target.value) },
     });
-
-    const config = gameEngine.current?.getTaskConfig(selectedTaskId) ?? null;
-    setSelectedTaskConfig(config);
   };
 
   const handlePerfectEndChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     gameEngine.current?.patchTaskConfig(selectedTaskId, {
       timingConfig: { perfectEnd: Number(e.target.value) },
     });
-
-    const config = gameEngine.current?.getTaskConfig(selectedTaskId) ?? null;
-    setSelectedTaskConfig(config);
   };
 
   const handleDurationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     gameEngine.current?.patchTaskConfig(selectedTaskId, {
-      duration: Number(e.target.value),
+      timingConfig: { duration: Number(e.target.value) },
     });
-
-    const config = gameEngine.current?.getTaskConfig(selectedTaskId) ?? null;
-    setSelectedTaskConfig(config);
   };
 
   const handleTaskIDChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -93,8 +92,8 @@ function SandboxPage() {
     e.currentTarget.blur();
   };
 
-  const handleDiagReset = (e: React.MouseEvent<HTMLButtonElement>) => {
-    gameEngine.current?.resetTaskDiag(selectedTaskId);
+  const handleResetCounts = (e: React.MouseEvent<HTMLButtonElement>) => {
+    gameEngine.current?.resetTaskCounts(selectedTaskId);
     e.currentTarget.blur();
   };
 
@@ -105,19 +104,22 @@ function SandboxPage() {
     const response = await fetch("/game-config.json");
     const jsonData = await response.json();
     const gameConfig = jsonData as GameConfig;
-    gameEngine.current?.setGameConfig(gameConfig);
-    gameEngine.current?.requestGameStart();
-    gameEngine.current?.requestGamePause();
+    if (gameEngine.current?.setGameConfig(gameConfig)) {
+      gameEngine.current?.requestGameStart();
+      gameEngine.current?.requestGamePause();
+    } else {
+      //TODO: loading error handler here
+    }
   }, []);
 
-  //constructs an array of config data for all active tasks
-  //converts to JSON format, programmatically generates and clicks download link
+  //converts level config to JSON format, programmatically generates and clicks download link
   //used for sandbox tuning of task config parameters
+  //TODO: implement export for more than one level
   const handleExportConfig = (e: React.MouseEvent<HTMLButtonElement>) => {
-    //construct export data as an array of config data for each task in gameState
-    const exportConfig = gameState.map((taskState) => {
-      return gameEngine.current?.getTaskConfig(taskState.id);
-    });
+    //no-op if lecelConfig does not exist (i.e. not loaded or invalid load)
+    if (!levelConfig) return;
+
+    const exportConfig: GameConfig = [levelConfig];
 
     //convert to JSON and create blob
     const jsonConfig = JSON.stringify(exportConfig, null, 2);
@@ -141,9 +143,14 @@ function SandboxPage() {
   //end game, re-load game config from file, re-start game and immediately pause
   const handleResetDefault = (e: React.MouseEvent<HTMLButtonElement>) => {
     setSelectedTaskId(0);
-    gameEngine.current?.requestGameStop();
-    loadSandboxConfig();
-    e.currentTarget.blur();
+    if (gameEngine.current?.requestGameStop()) {
+      loadSandboxConfig();
+      e.currentTarget.blur();
+    } else {
+      console.error(
+        "Error in handleResetDefault: Can only request game engine stop if simulation state is paused.",
+      );
+    }
   };
 
   //initial setup, runs on mount
@@ -152,8 +159,11 @@ function SandboxPage() {
   useEffect(() => {
     try {
       gameEngine.current = new GameEngine();
-      const unsubscribe = gameEngine.current.subscribe(
-        (snapshot: GameSnapshot) => setGameState(snapshot),
+      const snapshotUnsubscribe = gameEngine.current.snapshotSubscribe(
+        (snapshot: GameSnapshot) => setGameSnapshot(snapshot),
+      );
+      const levelUnsubscribe = gameEngine.current.levelSubscribe(
+        (levelConfig: LevelConfig) => setLevelConfig(levelConfig),
       );
       gameEngine.current.start();
       loadSandboxConfig();
@@ -161,7 +171,8 @@ function SandboxPage() {
       return () => {
         gameEngine.current?.requestGameStop();
         gameEngine.current?.stop();
-        unsubscribe();
+        snapshotUnsubscribe();
+        levelUnsubscribe();
       };
     } catch (error) {
       if (error instanceof Error) {
@@ -193,11 +204,8 @@ function SandboxPage() {
         );
         if (isAlphanumeric) {
           gameEngine.current?.patchTaskConfig(selectedTaskId, {
-            keyCode: e.code,
+            keyBind: e.code,
           });
-          const config =
-            gameEngine.current?.getTaskConfig(selectedTaskId) ?? null;
-          setSelectedTaskConfig(config);
           setKeyCaptureActive(false);
         }
 
@@ -215,6 +223,7 @@ function SandboxPage() {
         return;
       }
 
+      //if not rebinding and editable UI element is not active, pass key code to gameEngine for action
       gameEngine.current?.handleInput(e.code);
     };
     window.addEventListener("keydown", keyboardEventHandler);
@@ -223,42 +232,63 @@ function SandboxPage() {
     };
   }, [selectedTaskId, keyCaptureActive]);
 
-  //if game engine not created yet, wait for initialization
-  //retrieve and re-set local config state for new task ID
-  useEffect(() => {
-    if (!gameEngine.current) return;
-    const config = gameEngine.current.getTaskConfig(selectedTaskId);
-    setSelectedTaskConfig(config);
-  }, [selectedTaskId]);
-
-  //re-queries diagnostic data for selected task when gameState changes or new taskId is selected
-  //sets diagnostic data (triggers re-render) only if changed
-  //sets diag data to 'null' if taskId diagnostic data was not found in gameEngine
+  //re-queries counts for selected task when gameSnapshot changes or new taskId is selected
+  //sets riggers re-render only if counts changed
+  //sets counts to 'null' if taskId was not found in gameEngine
   //or if gameEngine not initialized
   useEffect(() => {
-    let newDiag: TaskDiag | null | undefined;
+    let newCounts: TaskCounts | null | undefined;
     if (selectedTaskId !== 0) {
-      newDiag = gameEngine.current?.getTaskDiag(selectedTaskId);
+      newCounts = gameEngine.current?.getTaskCounts(selectedTaskId);
     }
-    //diag found for taskId
-    if (newDiag) {
+    //taskId found
+    if (newCounts) {
       //if counts changed, set state (re-render), else NO-OP
-      setSelectedTaskDiag((prev) => {
+      setSelectedTaskCounts((prev) => {
         if (
-          newDiag.taskId !== prev?.taskId ||
-          newDiag.perfectCount !== prev?.perfectCount ||
-          newDiag.successCount !== prev?.successCount ||
-          newDiag.failureCount !== prev?.failureCount
+          newCounts.perfectCount !== prev?.perfectCount ||
+          newCounts.successCount !== prev?.successCount ||
+          newCounts.missCount !== prev?.missCount
         ) {
-          return newDiag;
+          return newCounts;
         } else return prev;
       });
     }
-    //diag not found for selected Task ID, zero out diagnostic state
+    //counts not found for selected Task ID, error state, zero out state variable
     else {
-      setSelectedTaskDiag(null);
+      console.error(
+        `taskId ${selectedTaskId} not found in update counts useEffect() in SandboxPage`,
+      );
+      setSelectedTaskCounts(null);
     }
-  }, [gameState, selectedTaskId]);
+  }, [gameSnapshot, selectedTaskId]);
+
+  //watches for run status to change from 'ok' or 'danger' to 'failed'
+  //  automatically restarts and pauses the simulation to sandbox is always in 'running' or 'paused' state
+  //  to the user, task progress and counts will reset/pause periodically during tuning
+  useEffect(() => {
+    //current run has just transitioned to 'failed'
+    if (gameSnapshot.runStatus === "failed") {
+      gameEngine.current?.requestGameStart();
+      gameEngine.current?.requestGamePause();
+    }
+  }, [gameSnapshot.runStatus]);
+
+  //so i don't have to do this find repeatedly inside the TSX below:
+  let selectedTaskConfig = levelConfig.taskConfigs.find(
+    (taskConfig) => taskConfig.id === selectedTaskId,
+  );
+  //override task config position and scale for display in sandbox
+  if (selectedTaskConfig) {
+    selectedTaskConfig = {
+      ...selectedTaskConfig,
+      position: {
+        x: (CONTAINER_WIDTH - renderConfig.BAR_WIDTH) / 2,
+        y: (CONTAINER_HEIGHT - renderConfig.BAR_HEIGHT) / 2,
+      },
+      scale: 3,
+    };
+  }
 
   return (
     <>
@@ -272,11 +302,13 @@ function SandboxPage() {
             {/* render a single task using provided props*/}
             <div className="lg:col-span-2 rounded-xl bg-slate-800 border border-slate-700 p-4 shadow-md min-h-50">
               <GameStage
-                gameState={gameState}
-                sandboxTaskId={selectedTaskId}
-                containerWidth={440}
-                containerHeight={150}
-                levelData={{ levelWidth: 440, levelHeight: 150 }}
+                gameSnapshot={gameSnapshot}
+                containerWidth={CONTAINER_WIDTH}
+                containerHeight={CONTAINER_HEIGHT}
+                levelConfig={{
+                  ...levelConfig,
+                  taskConfigs: selectedTaskConfig ? [selectedTaskConfig] : [],
+                }}
               />
             </div>
             {/* Task Result Counters, Reset Button, Export button */}
@@ -284,23 +316,28 @@ function SandboxPage() {
               <div className="flex h-full flex-col justify-between">
                 <div className="grid grid-cols-1 gap-3">
                   {/* Task Result Counters */}
+                  <p>Task Name: {selectedTaskConfig?.displayName}</p>
                   <p>
                     Total Perfect Successes:{" "}
-                    {selectedTaskDiag ? selectedTaskDiag.perfectCount : "_"}
+                    {selectedTaskCounts ? selectedTaskCounts.perfectCount : "_"}
                   </p>
                   <p>
                     Total Non-Perfect Successes:{" "}
-                    {selectedTaskDiag ? selectedTaskDiag.successCount : "_"}
+                    {selectedTaskCounts ? selectedTaskCounts.successCount : "_"}
                   </p>
                   <p>
-                    Total Failures:{" "}
-                    {selectedTaskDiag ? selectedTaskDiag.failureCount : "_"}
+                    Total Misses:{" "}
+                    {selectedTaskCounts ? selectedTaskCounts.missCount : "_"}
+                  </p>
+                  <p>
+                    Miss Streak:{" "}
+                    {selectedTaskCounts ? selectedTaskCounts.missStreak : "_"}
                   </p>
                 </div>
 
                 <button
                   className="mt-4 rounded-lg border border-slate-500 bg-slate-700 px-4 py-2 text-sm font-medium text-slate-100 hover:bg-slate-600 w-fit self-start"
-                  onClick={handleDiagReset}
+                  onClick={handleResetCounts}
                 >
                   Reset Counts
                 </button>
@@ -393,7 +430,7 @@ function SandboxPage() {
             {/* Duration Card*/}
             <SandboxControlCard
               label="Task Duration (seconds)"
-              value={selectedTaskConfig?.duration.toString()}
+              value={selectedTaskConfig?.timingConfig.duration.toString()}
             >
               <input
                 className="pt-4"
@@ -402,14 +439,14 @@ function SandboxPage() {
                 min="0.1"
                 max="10"
                 step="0.1"
-                value={selectedTaskConfig?.duration}
+                value={selectedTaskConfig?.timingConfig.duration}
                 onChange={handleDurationChange}
               />
             </SandboxControlCard>
             {/* Keybind Card*/}
             <SandboxControlCard
               label="Task Keybind (KeyCode)"
-              value={selectedTaskConfig?.keyCode.toString()}
+              value={selectedTaskConfig?.keyBind.toString()}
             >
               <button
                 ref={keybindButtonRef}
@@ -430,8 +467,7 @@ function SandboxPage() {
                   : "Select char key or [Esc])"}
               </button>
             </SandboxControlCard>
-            {/* Select Task by ID, default is no task*/}
-            {/* TODO: get the actual task ID list from gameEngine and default to first task*/}
+            {/* Select Task by ID, default is no task (0)*/}
             <SandboxControlCard label="Select Task ID">
               <select
                 className="w-full rounded-md bg-slate-900 border border-slate-600 px-3 py-2 text-slate-100"
@@ -442,13 +478,13 @@ function SandboxPage() {
                 <option className="bg-slate-900 text-slate-100" value={0}>
                   --X--
                 </option>
-                {gameState.map((gameSnapshot, index) => (
+                {gameSnapshot.recordSnapshots.map((recordSnapshot, index) => (
                   <option
                     className="bg-slate-900 text-slate-100"
                     key={index + 1}
-                    value={gameSnapshot.id}
+                    value={recordSnapshot.id}
                   >
-                    {gameSnapshot.id}
+                    {recordSnapshot.id}
                   </option>
                 ))}
               </select>
